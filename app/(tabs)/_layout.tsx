@@ -3,6 +3,7 @@ import { Tabs } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { Ionicons } from "@expo/vector-icons";
+import { Store } from "@/config/greenhaus";
 
 
 export const webviewRefs: Record<string, any> = {
@@ -61,7 +62,7 @@ export default function Layout() {
             name={name}
             options={{
               title: TAB_LABELS[name] || name,
-              tabBarIcon: ({ focused, color, size }) => {
+              tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => {
                 const iconName = focused ? iconConfig.filled : iconConfig.outline;
                 return (
                   <View style={styles.iconWrapper} testID={`${name}-tab-icon`}>
@@ -87,10 +88,16 @@ export default function Layout() {
                   const ref = webviewRefs[name];
                   const current = ref?.current;
                   if (current) {
-                    console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
-                    try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
-                    try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
-                    try { current.reload(); } catch {}
+                    if (name === 'home') {
+                      console.log(`[Tabs] 🏠 Home tab pressed → redirecting to base URL and refreshing`);
+                      try { current.injectJavaScript(`(function(){ try{ window.location.href='${Store.HOME}'; }catch(e){}; true; })();`); } catch {}
+                      try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
+                    } else {
+                      console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
+                      try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
+                      try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
+                      try { current.reload(); } catch {}
+                    }
                   } else {
                     console.log(`[Tabs] ⚠️ No webviewRef for ${name}`);
                   }
