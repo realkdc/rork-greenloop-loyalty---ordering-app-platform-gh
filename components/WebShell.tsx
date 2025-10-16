@@ -34,143 +34,147 @@ true;
 
 const CART_COUNTER_SCRIPT = `
 (function(){
-  console.log('🚀 CART SCRIPT STARTING - WebShell version');
-  if (window.__ghCC?.installed) {
-    console.log('🚀 Cart script already installed, skipping');
+  console.log('🛒 [GH Cart] Initializing cart counter');
+  
+  if (window.__ghCartCounter) {
+    console.log('🛒 [GH Cart] Already initialized');
     return;
   }
-  window.__ghCC = { installed: true, active: true, lastSent: undefined, timer: null };
-  console.log('🚀 Cart script installed successfully');
+  
+  window.__ghCartCounter = { lastValue: 0 };
 
-  const d = document;
-  const q  = (sel) => d.querySelector(sel);
-  const qAll = (sel) => d.querySelectorAll(sel);
-
-  function parseIntSafe(x){
-    const n = parseInt(String(x).trim(),10);
-    return Number.isFinite(n) ? n : null;
-  }
-
-  function readCount(){
-    let n = null;
-
-    // Test 1: Header badge - PRIMARY METHOD
-    const el = q('a.ins-header__icon.ins-header__icon--cart[data-count]');
-    if (el) {
-      const attr = el.getAttribute('data-count');
-      n = parseIntSafe(attr);
-      console.log('[GH Cart] Header badge data-count:', attr, '→', n);
-    }
-
-    // Test 2: Footer quick-link text
-    if (n === null) {
-      const bag = Array.from(qAll('a,button,li')).find(e => /shopping bag\\s*\\((\\d+)\\)/i.test(e.textContent||''));
-      if (bag) {
-        const match = bag.textContent.match(/\\((\\d+)\\)/);
-        n = parseIntSafe(match ? match[1] : null);
-        console.log('[GH Cart] Footer bag text:', bag.textContent, '→', n);
+  function findCartCount() {
+    // Method 1: Look for data-count attribute on cart link
+    const cartLink = document.querySelector('a[href*="cart"][data-count]');
+    if (cartLink) {
+      const count = parseInt(cartLink.getAttribute('data-count'), 10);
+      if (!isNaN(count) && count >= 0) {
+        console.log('🛒 [GH Cart] Found via data-count:', count);
+        return count;
       }
     }
 
-    // Test 3: Cart page item count
-    if (n === null && /\\/products\\/cart/i.test(location.pathname)) {
-      const items = qAll('.ec-cart__products li, [data-cart-item], .cart__item');
-      n = items.length > 0 ? items.length : 0;
-      console.log('[GH Cart] Cart page items:', items.length, '→', n);
-    }
-
-    // Test 4: Mini widget counters
-    if (n === null) {
-      const w = q('.ec-cart-widget__counter, .cart-counter, [data-cart-count]');
-      if (w) {
-        n = parseIntSafe(w.getAttribute('data-cart-count') || w.textContent);
-        console.log('[GH Cart] Widget counter:', w, '→', n);
+    // Method 2: Look for counter elements
+    const counterSelectors = [
+      '.ec-minicart__counter',
+      '.ec-cart-widget__counter',
+      '.cart-counter',
+      '[data-cart-count]'
+    ];
+    
+    for (const selector of counterSelectors) {
+      const el = document.querySelector(selector);
+      if (el) {
+        const text = el.textContent?.trim();
+        const count = parseInt(text, 10);
+        if (!isNaN(count) && count >= 0) {
+          console.log('🛒 [GH Cart] Found via selector', selector + ':', count);
+          return count;
+        }
       }
     }
 
-    // Test 5: Ecwid API - ASYNC FALLBACK
-    if (n === null && window.Ecwid?.getCart) {
+    // Method 3: On cart page, count items
+    if (window.location.pathname.includes('/cart')) {
+      const items = document.querySelectorAll('.ec-cart-item, [data-cart-item], .cart__item');
+      if (items.length > 0) {
+        console.log('🛒 [GH Cart] Found via cart page items:', items.length);
+        return items.length;
+      }
+    }
+
+    // Method 4: Try Ecwid API if available
+    if (window.Ecwid && typeof window.Ecwid.getCart === 'function') {
       try {
         window.Ecwid.getCart(function(cart) {
           const count = cart?.productsQuantity || 0;
-          console.log('[GH Cart] Ecwid getCart:', count);
-          postCount(count, true);
+          console.log('🛒 [GH Cart] Found via Ecwid API:', count);
+          sendToReactNative(count);
         });
-      } catch(e) {
-        console.log('[GH Cart] Ecwid error:', e);
+        return null;
+      } catch (e) {
+        console.log('🛒 [GH Cart] Ecwid API error:', e);
       }
     }
 
-    if (n === null) {
-      console.log('[GH Cart] No count found, defaulting to 0');
-      n = 0;
-    }
-
-    return n;
+    console.log('🛒 [GH Cart] No cart count found, returning 0');
+    return 0;
   }
 
-  function postCount(value, force=false){
-    if (!window.__ghCC.active && !force) return;
-    const payload = { type:'CART_COUNT', value, source: location.pathname };
-    const same = JSON.stringify(payload) === JSON.stringify(window.__ghCC.lastSent);
-    if (!force && same) return;
-    window.__ghCC.lastSent = payload;
-    console.log('[GH Cart] Posting to RN:', payload);
+  function sendToReactNative(count) {
+    if (typeof count !== 'number' || isNaN(count) || count < 0) {
+      console.log('🛒 [GH Cart] Invalid count, skipping:', count);
+      return;
+    }
+
+    if (count === window.__ghCartCounter.lastValue) {
+      return;
+    }
+
+    window.__ghCartCounter.lastValue = count;
+    console.log('🛒 [GH Cart] ✅ Sending to React Native:', count);
+    
     if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'CART_COUNT',
+        value: count
+      }));
     }
   }
 
-  const debouncedPost = (()=> {
-    let t; 
-    return ()=>{ 
-      clearTimeout(t); 
-      t=setTimeout(()=>{
-        const n = readCount();
-        postCount(n, false);
-      }, 300); 
+  function checkCart() {
+    const count = findCartCount();
+    if (count !== null) {
+      sendToReactNative(count);
     }
-  })();
+  }
 
-  const mo = new MutationObserver(debouncedPost);
-  mo.observe(d.documentElement, { childList:true, subtree:true, attributes:true });
+  // Debounced check
+  let checkTimeout;
+  function debouncedCheck() {
+    clearTimeout(checkTimeout);
+    checkTimeout = setTimeout(checkCart, 250);
+  }
 
-  ['pageshow','visibilitychange','popstate','hashchange'].forEach(ev => 
-    addEventListener(ev, debouncedPost, {passive:true})
-  );
+  // Watch for DOM changes
+  const observer = new MutationObserver(debouncedCheck);
+  observer.observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-count']
+  });
 
-  setTimeout(()=>{
-    const n = readCount();
-    postCount(n, true);
-  }, 500);
-
-  setTimeout(()=>{
-    const n = readCount();
-    postCount(n, true);
-  }, 2000);
-
-  setTimeout(()=>{
-    const n = readCount();
-    postCount(n, true);
-  }, 4000);
-
-  addEventListener('message', (e)=>{
-    let msg;
-    try { 
-      msg = JSON.parse(String(e.data||'{}')); 
-    } catch { 
-      return; 
-    }
-    if (msg.type === 'TAB_ACTIVE') { 
-      window.__ghCC.active = !!msg.value; 
-      const n = readCount();
-      postCount(n, true); 
-    }
-    if (msg.type === 'PING') { 
-      const n = readCount();
-      postCount(n, true); 
+  // Listen to navigation and visibility events
+  window.addEventListener('load', checkCart);
+  window.addEventListener('pageshow', checkCart);
+  window.addEventListener('focus', checkCart);
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+      checkCart();
     }
   });
+
+  // Listen for Ecwid cart changes
+  if (window.Ecwid && window.Ecwid.OnCartChanged) {
+    try {
+      window.Ecwid.OnCartChanged.add(function(cart) {
+        const count = cart?.productsQuantity || 0;
+        console.log('🛒 [GH Cart] Ecwid OnCartChanged:', count);
+        sendToReactNative(count);
+      });
+    } catch (e) {
+      console.log('🛒 [GH Cart] Failed to subscribe to OnCartChanged:', e);
+    }
+  }
+
+  // Initial checks
+  setTimeout(checkCart, 100);
+  setTimeout(checkCart, 500);
+  setTimeout(checkCart, 1500);
+  setTimeout(checkCart, 3000);
+
+  console.log('🛒 [GH Cart] Initialization complete');
 })();
 `;
 

@@ -32,7 +32,10 @@ const TAB_LABELS: Record<string, string> = {
 export default function Layout() {
   const { cartCount } = useApp();
 
-  console.log('[TabLayout] 🎨 Rendering with cartCount:', cartCount, 'type:', typeof cartCount, 'will show badge:', cartCount > 0);
+  console.log('[TabLayout] 🎨 Rendering tabs');
+  console.log('[TabLayout] 📊 Cart count:', cartCount);
+  console.log('[TabLayout] 🎯 Should show badge:', cartCount > 0);
+  console.log('[TabLayout] 🔢 Badge value:', cartCount > 99 ? '99+' : cartCount);
 
   return (
     <Tabs 
@@ -67,7 +70,7 @@ export default function Layout() {
                     {name === "cart" && cartCount > 0 && (
                       <View style={styles.badge}>
                         <Text style={styles.badgeLabel}>
-                          {cartCount > 99 ? "99+" : cartCount}
+                          {cartCount > 99 ? "99+" : String(cartCount)}
                         </Text>
                       </View>
                     )}

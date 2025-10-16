@@ -5,7 +5,6 @@ import { TrackingService } from '@/services/tracking';
 import { CampaignService } from '@/services/campaigns';
 import { useAuth } from './AuthContext';
 import { MOCK_REWARDS } from '@/mocks/rewards';
-import { cartBadge } from '@/lib/cartBadge';
 import type { Transaction, Reward, Campaign } from '@/types';
 
 interface AppState {
@@ -31,23 +30,14 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shopUrl, setShopUrl] = useState<string>('https://greenhauscc.com/products');
-  const [cartCount, setCartCountInternal] = useState<number>(cartBadge.get());
-
-  useEffect(() => {
-    console.log('[AppContext] 📡 Subscribing to cartBadge');
-    const unsub = cartBadge.on((n) => {
-      console.log('[AppContext] 📊 cartBadge emitted:', n, 'type:', typeof n);
-      setCartCountInternal(n);
-    });
-    return () => {
-      console.log('[AppContext] 📡 Unsubscribing from cartBadge');
-      unsub();
-    };
-  }, []);
+  const [cartCount, setCartCountInternal] = useState<number>(0);
 
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
-    cartBadge.set(count);
+    if (count === null || count === undefined) return;
+    const normalized = Math.max(0, Math.min(999, Math.floor(count)));
+    console.log('[AppContext] ✅ Setting cart count to:', normalized);
+    setCartCountInternal(normalized);
   }, []);
 
   const refreshTransactions = useCallback(async () => {
