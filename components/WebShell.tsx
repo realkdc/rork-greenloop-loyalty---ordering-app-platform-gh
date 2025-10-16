@@ -58,6 +58,13 @@ const CART_COUNTER_SCRIPT = `
     }
 
     if (n === null && /\/products\/cart/i.test(location.pathname)) {
+      const itemsText = Array.from(qAll('*')).find(e => /^\d+\s*items?$/i.test((e.textContent||'').trim()));
+      if (itemsText) {
+        n = toInt((itemsText.textContent.match(/^(\d+)/)||[])[1]);
+      }
+    }
+
+    if (n === null && /\/products\/cart/i.test(location.pathname)) {
       const items = qAll('.ec-cart__products li, [data-cart-item], .cart__item');
       n = toInt(items.length);
     }
