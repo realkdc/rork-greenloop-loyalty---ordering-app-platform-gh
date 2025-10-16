@@ -1,6 +1,6 @@
 (function(){
   if (window.__ghCC?.installed) return;
-  window.__ghCC = { installed: true, active: false, lastSent: undefined, timer: null };
+  window.__ghCC = { installed: true, active: true, lastSent: undefined, timer: null };
 
   const d = document;
   const q  = (sel) => d.querySelector(sel);
@@ -16,31 +16,49 @@
 
     const el = q('a.ins-header__icon.ins-header__icon--cart[data-count]');
     if (el) {
-      n = parseIntSafe(el.getAttribute('data-count'));
+      const attr = el.getAttribute('data-count');
+      n = parseIntSafe(attr);
+      console.log('[GH Cart] Header badge data-count:', attr, '→', n);
     }
 
     if (n === null) {
       const bag = Array.from(qAll('a,button,li')).find(e => /shopping bag\s*\(\d+\)/i.test(e.textContent||''));
-      if (bag) n = parseIntSafe((bag.textContent.match(/\((\d+)\)/)||[])[1]);
+      if (bag) {
+        const match = bag.textContent.match(/\((\d+)\)/);
+        n = parseIntSafe(match ? match[1] : null);
+        console.log('[GH Cart] Footer bag text:', bag.textContent, '→', n);
+      }
     }
 
     if (n === null && /\/products\/cart/i.test(location.pathname)) {
       const items = qAll('.ec-cart__products li, [data-cart-item], .cart__item');
-      n = parseIntSafe(items.length);
+      n = items.length > 0 ? items.length : 0;
+      console.log('[GH Cart] Cart page items:', items.length, '→', n);
     }
 
     if (n === null) {
       const w = q('.ec-cart-widget__counter, .cart-counter, [data-cart-count]');
-      if (w) n = parseIntSafe(w.getAttribute('data-cart-count') || w.textContent);
+      if (w) {
+        n = parseIntSafe(w.getAttribute('data-cart-count') || w.textContent);
+        console.log('[GH Cart] Widget counter:', w, '→', n);
+      }
     }
 
     if (n === null && window.Ecwid?.getCart) {
       try {
         window.Ecwid.getCart(function(cart) {
           const count = cart?.productsQuantity || 0;
+          console.log('[GH Cart] Ecwid getCart:', count);
           postCount(count, true);
         });
-      } catch(_e) {}
+      } catch(e) {
+        console.log('[GH Cart] Ecwid error:', e);
+      }
+    }
+
+    if (n === null) {
+      console.log('[GH Cart] No count found, defaulting to 0');
+      n = 0;
     }
 
     return n;
@@ -52,6 +70,7 @@
     const same = JSON.stringify(payload) === JSON.stringify(window.__ghCC.lastSent);
     if (!force && same) return;
     window.__ghCC.lastSent = payload;
+    console.log('[GH Cart] Posting to RN:', payload);
     if (window.ReactNativeWebView) {
       window.ReactNativeWebView.postMessage(JSON.stringify(payload));
     }
@@ -78,7 +97,7 @@
   setTimeout(()=>{
     const n = readCount();
     postCount(n, true);
-  }, 50);
+  }, 100);
 
   addEventListener('message', (e)=>{
     let msg;
