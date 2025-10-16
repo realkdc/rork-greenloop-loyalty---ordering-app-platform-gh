@@ -11,11 +11,16 @@ export default function CartTab() {
   webviewRefs.cart = ref;
 
   useFocusEffect(React.useCallback(()=>{
-    console.log('[Cart Tab] Focused');
+    console.log('[Cart Tab] 👀 Focused - requesting cart count update');
     setTimeout(() => {
       ref.current?.injectJavaScript(`
         (function(){
           try{
+            console.log('[Cart Tab] 📡 Sending PING to cart counter');
+            if (window.__ghCC) {
+              window.__ghCC.active = true;
+              window.postMessage(JSON.stringify({type: 'PING'}), '*');
+            }
             window.dispatchEvent(new Event('focus'));
           }catch(e){
             console.error('[Cart] Focus event error:', e);

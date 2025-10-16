@@ -11,7 +11,20 @@ export default function SearchTab() {
   webviewRefs.search = ref;
 
   useFocusEffect(React.useCallback(()=>{
-    ref.current?.injectJavaScript(`(function(){ try{ window.dispatchEvent(new Event('focus')); }catch(e){} window.scrollTo(0,0); true; })();`);
+    console.log('[Search Tab] 🔍 Focused - requesting cart count update');
+    ref.current?.injectJavaScript(`
+      (function(){ 
+        try{ 
+          if (window.__ghCC) {
+            window.__ghCC.active = true;
+            window.postMessage(JSON.stringify({type: 'PING'}), '*');
+          }
+          window.dispatchEvent(new Event('focus')); 
+        }catch(e){} 
+        window.scrollTo(0,0); 
+        true; 
+      })();
+    `);
     return undefined;
   },[]));
 

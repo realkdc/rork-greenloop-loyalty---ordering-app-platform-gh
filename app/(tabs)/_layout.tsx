@@ -43,6 +43,9 @@ export default function Layout() {
         headerShown: false,
         tabBarActiveTintColor: "#22c55e",
         tabBarInactiveTintColor: "#9ca3af",
+        tabBarStyle: {
+          overflow: "visible",
+        },
       }}
     >
       {(["home", "search", "cart", "orders", "profile"] as const).map((name) => {
@@ -93,27 +96,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 40,
     height: 40,
-    overflow: "visible",
   },
   badge: {
     position: "absolute",
-    top: -6,
-    right: -2,
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    top: -8,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "#ef4444",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 5,
+    paddingHorizontal: 4,
     borderWidth: 2,
     borderColor: "#fff",
-    zIndex: 999,
+    zIndex: 9999,
+    elevation: 9999,
   },
   badgeLabel: {
     color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-    lineHeight: 16,
+    fontSize: 10,
+    fontWeight: "700" as const,
+    includeFontPadding: false,
   },
 });
