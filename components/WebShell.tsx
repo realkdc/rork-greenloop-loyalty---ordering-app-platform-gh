@@ -34,185 +34,85 @@ true;
 
 const CART_COUNTER_SCRIPT = `
 (function(){
-  console.log('🛒 [GH Cart] Initializing cart counter');
-  
-  if (window.__ghCartCounter) {
-    console.log('🛒 [GH Cart] Already initialized');
-    return;
-  }
-  
-  window.__ghCartCounter = { lastValue: -1, active: true };
+  if (window.__ghCartCounter?.installed) return;
+  let persisted = -1;
+  try { persisted = parseInt(sessionStorage.getItem('__ghLastCount')||''); } catch {}
+  window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false };
   window.__ghCC = window.__ghCartCounter;
-
-  function findCartCount() {
-    // Method 1: data-count attribute (preferred)
-    const cartLink = document.querySelector('a[href*="cart"][data-count]');
-    if (cartLink) {
-      const count = parseInt(cartLink.getAttribute('data-count'), 10);
-      if (!isNaN(count) && count >= 0) {
-        console.log('🛒 [GH Cart] Found via data-count:', count);
-        return count;
-      }
+  function isCartPage(){ return /\\/cart(\\b|\\/|$)/i.test(location.pathname) || /#checkout/i.test(location.hash); }
+  function persist(n){ try{ sessionStorage.setItem('__ghLastCount', String(n)); }catch{} }
+  function parseSafe(n){ const v=parseInt(n,10); return Number.isFinite(v)&&v>=0?v:null; }
+  function domProbe(){
+    const sel=[
+      'a[href*="cart"] .ec-minicart__counter',
+      '.ec-cart-widget__counter',
+      '.ec-minicart__counter',
+      'a.ins-header__icon.ins-header__icon--cart[data-count]',
+      '[data-cart-count]',
+      '.cart-counter',
+      'a[href*="/cart"] span[class*="count"]',
+      'a[href*="/cart"] span[class*="badge"]',
+      '.ec-cart-count',
+      '.shopping-bag__count'
+    ];
+    for (const s of sel){
+      const el = document.querySelector(s);
+      if (!el) continue;
+      const raw = el.getAttribute('data-count')||el.getAttribute('data-cart-count')||(el.textContent||'').trim();
+      const n = parseSafe(raw);
+      if (n!==null) return n;
     }
-
-    // Method 2: Generic [data-count] badge
-    const cartButton = document.querySelector('[data-count]');
-    if (cartButton) {
-      const count = parseInt(cartButton.getAttribute('data-count'), 10);
-      if (!isNaN(count) && count >= 0) {
-        console.log('🛒 [GH Cart] Found via [data-count]:', count);
-        return count;
-      }
+    if (isCartPage()){
+      const items = document.querySelectorAll('.ec-cart__products li, [data-cart-item], .cart__item, .ec-cart-item');
+      if (items.length>0) return items.length;
     }
-
-    // Method 3: On cart page, count items
-    if (window.location.pathname.includes('/cart')) {
-      const items = document.querySelectorAll('.ec-cart-item, [class*="cart-item"]');
-      if (items.length > 0) {
-        console.log('🛒 [GH Cart] Found via cart page items:', items.length);
-        return items.length;
-      }
-    }
-
-    // Method 4: Ecwid API
-    if (window.Ecwid && typeof window.Ecwid.Cart !== 'undefined') {
-      try {
-        const cart = window.Ecwid.Cart.get();
-        const count = cart?.productsQuantity || 0;
-        console.log('🛒 [GH Cart] Found via Ecwid.Cart.get():', count);
-        return count;
-      } catch (e) {
-        console.log('🛒 [GH Cart] Ecwid API error:', e);
-      }
-    }
-
-    console.log('🛒 [GH Cart] No cart count found, returning 0');
-    return 0;
+    return null;
   }
-
-  function sendToReactNative(count) {
-    if (typeof count !== 'number' || isNaN(count) || count < 0) {
-      console.log('🛒 [GH Cart] Invalid count, skipping:', count);
-      return;
-    }
-
-    if (!window.__ghCartCounter.active) {
-      console.log('🛒 [GH Cart] Inactive tab, skipping send');
-      return;
-    }
-
-    if (count === window.__ghCartCounter.lastValue) {
-      return;
-    }
-
-    window.__ghCartCounter.lastValue = count;
-    console.log('🛒 [GH Cart] ✅ Sending to React Native:', count);
-    
-    if (window.ReactNativeWebView) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'CART_COUNT',
-        value: count
-      }));
-    } else {
-      console.log('🛒 [GH Cart] ⚠️ ReactNativeWebView not available');
+  function post(n, fromAPI){
+    if (!window.__ghCartCounter.active) return;
+    if (n===null || n===undefined){ if(!window.__ghCartCounter.ready) return; n=window.__ghCartCounter.lastValue; }
+    if (n===0 && window.__ghCartCounter.lastValue>0 && isCartPage() && !window.__ghCartCounter.confirmedEmpty) return;
+    if (fromAPI){ window.__ghCartCounter.ready=true; window.__ghCartCounter.confirmedEmpty = n===0; }
+    if (n>0){ window.__ghCartCounter.ready=true; window.__ghCartCounter.confirmedEmpty=false; }
+    if (n===window.__ghCartCounter.lastValue) return;
+    window.__ghCartCounter.lastValue = n;
+    persist(n);
+    if (window.ReactNativeWebView){
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
     }
   }
-
-  function checkCart() {
-    if (!window.__ghCartCounter.active) {
-      return;
-    }
-    const count = findCartCount();
-    sendToReactNative(count);
+  function tryAPI(){
+    if (!window.Ecwid) return false;
+    try{
+      if (window.Ecwid.Cart?.get){
+        window.Ecwid.Cart.get(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c, true); });
+        return true;
+      }
+    }catch{}
+    try{
+      if (window.Ecwid.getCart){
+        window.Ecwid.getCart(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c, true); });
+        return true;
+      }
+    }catch{}
+    return false;
   }
-
-  // Debounced check to avoid spam
-  let checkTimeout;
-  function debouncedCheck() {
-    clearTimeout(checkTimeout);
-    checkTimeout = setTimeout(checkCart, 300);
+  function check(){
+    const viaAPI = tryAPI();
+    if (!viaAPI){ const d = domProbe(); if (d!==null) post(d, false); }
   }
-
-  // Watch for DOM changes (cart updates)
-  const observer = new MutationObserver(function(mutations) {
-    let shouldCheck = false;
-    for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'data-count') {
-        shouldCheck = true;
-        break;
-      }
-      if (mutation.type === 'childList') {
-        shouldCheck = true;
-        break;
-      }
-    }
-    if (shouldCheck) {
-      debouncedCheck();
-    }
-  });
-  
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['data-count']
-  });
-
-  // Listen to page events
-  window.addEventListener('load', checkCart);
-  window.addEventListener('pageshow', checkCart);
-
-  function handleMessageEvent(event) {
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === 'PING') {
-        console.log('🛒 [GH Cart] Received PING, checking cart…');
-        setTimeout(checkCart, 100);
-      }
-      if (msg.type === 'TAB_ACTIVE') {
-        console.log('🛒 [GH Cart] TAB_ACTIVE →', msg.value);
-        window.__ghCartCounter.active = !!msg.value;
-        if (msg.value) {
-          setTimeout(checkCart, 100);
-        }
-      }
-    } catch (e) {
-      // Ignore parse errors
-    }
+  let t; function debounced(){ clearTimeout(t); t=setTimeout(check,300); }
+  const mo = new MutationObserver(debounced);
+  mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true});
+  window.addEventListener('load', debounced);
+  window.addEventListener('pageshow', debounced);
+  function onMsg(event){
+    try{ const m = JSON.parse(event.data); if (m.type==='PING'){ setTimeout(check,100); } if (m.type==='TAB_ACTIVE'){ window.__ghCartCounter.active=!!m.value; if(m.value) setTimeout(check,100); } }catch{}
   }
-
-  // Listen for messages from React Native
-  window.addEventListener('message', handleMessageEvent);
-  document.addEventListener('message', handleMessageEvent);
-
-  // Ecwid cart change listener
-  if (window.Ecwid) {
-    const checkEcwidReady = setInterval(function() {
-      if (window.Ecwid && window.Ecwid.OnCartChanged) {
-        clearInterval(checkEcwidReady);
-        try {
-          window.Ecwid.OnCartChanged.add(function(cart) {
-            const count = cart?.productsQuantity || 0;
-            console.log('🛒 [GH Cart] Ecwid OnCartChanged event:', count);
-            sendToReactNative(count);
-          });
-          console.log('🛒 [GH Cart] Subscribed to Ecwid.OnCartChanged');
-        } catch (e) {
-          console.log('🛒 [GH Cart] Failed to subscribe to OnCartChanged:', e);
-        }
-      }
-    }, 500);
-    
-    setTimeout(function() { clearInterval(checkEcwidReady); }, 10000);
-  }
-
-  // Initial checks at various intervals to catch delayed renders
-  setTimeout(checkCart, 500);
-  setTimeout(checkCart, 1000);
-  setTimeout(checkCart, 2000);
-  setTimeout(checkCart, 3000);
-
-  console.log('🛒 [GH Cart] Initialization complete');
+  window.addEventListener('message', onMsg);
+  document.addEventListener('message', onMsg);
+  if (window.Ecwid?.OnCartChanged){ try{ window.Ecwid.OnCartChanged.add(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c,true); }); }catch{} }
+  [400,1000,2000,3500,6000,9000].forEach(d=>setTimeout(check,d));
 })();
 true;
 `;
