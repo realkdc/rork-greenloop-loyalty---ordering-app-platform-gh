@@ -17,8 +17,8 @@ export default function CartTab() {
         (function(){
           try{
             console.log('[Cart Tab] 📡 Sending PING to cart counter');
-            if (window.__ghCC) {
-              window.__ghCC.active = true;
+            if (window.__ghCartCounter) {
+              window.__ghCartCounter.active = true;
               window.postMessage(JSON.stringify({type: 'PING'}), '*');
             }
             window.dispatchEvent(new Event('focus'));

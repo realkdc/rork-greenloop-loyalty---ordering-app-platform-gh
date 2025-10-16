@@ -34,7 +34,7 @@ The cart badge displays the number of items in the cart on the bottom tab bar. T
 Only the active tab's WebView can post cart updates to prevent race conditions:
 - When tab gains focus: sends `{ type: 'TAB_ACTIVE', value: true }`
 - When tab loses focus: sends `{ type: 'TAB_ACTIVE', value: false }`
-- Injected script only posts updates when `window.__ghCC.active === true`
+- Injected script only posts updates when `window.__ghCartCounter.active === true`
 
 ## Key Design Decisions
 
@@ -60,9 +60,9 @@ MutationObserver fires frequently during DOM updates. Debouncing (300ms) reduces
 3. Verify active tab gating is working (only one tab should be active)
 
 ### Badge doesn't update when adding items
-1. Confirm MutationObserver is installed: check for `window.__ghCC.installed`
+1. Confirm MutationObserver is installed: check for `window.__ghCartCounter`
 2. Verify the website updates the cart badge attribute or text
-3. Try manually triggering: `window.__ghCC.active = true; /* trigger readCount */`
+3. Try manually triggering: `window.__ghCartCounter.active = true; /* trigger readCount */`
 
 ## Files Involved
 - `lib/cartBadge.ts` - State manager

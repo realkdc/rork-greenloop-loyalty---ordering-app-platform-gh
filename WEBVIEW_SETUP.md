@@ -22,12 +22,12 @@ GREENHAUS.profile // Account page
 matchRoute(url) // Returns: "home" | "search" | "cart" | "orders" | "profile" | "other"
 ```
 
-### 2. WebView Component (`components/AppWebView.tsx`)
+### 2. WebView Component (`components/WebShell.tsx`)
 Drop-in component for all tabs:
 ```tsx
-<AppWebView 
+<WebShell 
   initialUrl={GREENHAUS.home}
-  webViewRef={homeWebViewRef}
+  tabKey="home"
 />
 ```
 
@@ -61,19 +61,15 @@ Bottom navigation configured with:
 /* eslint-disable @rork/linters/expo-router-enforce-safe-area-usage */
 import React from 'react';
 import { Stack } from 'expo-router';
-import AppWebView from '@/components/AppWebView';
+import { WebShell } from '@/components/WebShell';
 import { GREENHAUS } from '@/config/greenhaus';
-import { useWebView } from '@/contexts/WebViewContext';
-
 export default function NewTabScreen() {
-  const { newTabWebViewRef } = useWebView();
-
   return (
     <>
       <Stack.Screen options={{ title: 'New Tab', headerShown: false }} />
-      <AppWebView 
+      <WebShell 
         initialUrl="https://greenhauscc.com/new-page"
-        webViewRef={newTabWebViewRef}
+        tabKey="newtab"
       />
     </>
   );
@@ -153,31 +149,19 @@ export const GREENHAUS = {
 ```
 
 ### Adjust Cart Count Detection
-Edit the `getCartCount()` function in `lib/webviewSkin.ts`:
+Edit the cart counter script at the top of `components/WebShell.tsx`:
 ```typescript
-function getCartCount() {
-  // Add your selectors to the candidates array
-  const cands = [
-    '.cart-count',
-    '.my-custom-cart-badge', // Your selector here
-  ];
-  // ...
-}
+const CART_COUNTER_SCRIPT = `
+  // Update selectors inside findCartCount()
+`;
 ```
 
 ### Modify Auto Tab Switching
-Edit `handleNavigationStateChange` in `components/AppWebView.tsx`:
+Edit the `handleMessage`/`checkNav` logic in `components/WebShell.tsx`:
 ```typescript
-const handleNavigationStateChange = useCallback((navState: any) => {
-  const routeType = matchRoute(navState.url);
-  
-  switch (routeType) {
-    case 'cart':
-      router.push('/(tabs)/cart');
-      break;
-    // Add custom routing here
-  }
-}, [router]);
+if (msg.type === 'NAVIGATE_TAB') {
+  // custom tab routing
+}
 ```
 
 ## Common Issues
@@ -203,7 +187,7 @@ Check console for "🛒 Cart count updated: X" logs. If missing, add your cart c
 ### External Links Opening
 These are blocked by default. To allow specific domains:
 ```typescript
-// components/AppWebView.tsx
+// components/WebShell.tsx
 const handleShouldStartLoad = useCallback((request: any) => {
   const isAllowed = request.url.includes('greenhauscc.com') || 
                     request.url.includes('trusted-domain.com');

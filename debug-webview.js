@@ -5,9 +5,9 @@ console.log('Document object:', typeof document);
 console.log('ReactNativeWebView:', typeof window.ReactNativeWebView);
 
 // Test if our script is installed
-console.log('__ghCC installed:', !!window.__ghCC);
-if (window.__ghCC) {
-  console.log('__ghCC details:', window.__ghCC);
+console.log('__ghCartCounter installed:', !!window.__ghCartCounter);
+if (window.__ghCartCounter) {
+  console.log('__ghCartCounter details:', window.__ghCartCounter);
 }
 
 // Test cart detection

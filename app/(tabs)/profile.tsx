@@ -152,8 +152,8 @@ export default function ProfileTab() {
       ref.current?.injectJavaScript(`
         (function(){ 
           try{ 
-            if (window.__ghCC) {
-              window.__ghCC.active = true;
+            if (window.__ghCartCounter) {
+              window.__ghCartCounter.active = true;
               window.postMessage(JSON.stringify({type: 'PING'}), '*');
             }
             window.dispatchEvent(new Event('focus')); 

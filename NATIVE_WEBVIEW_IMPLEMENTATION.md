@@ -45,19 +45,20 @@ Hides all site chrome immediately to prevent flashing:
 
 - **Loyalty Detection**: Scrapes "Earn $X Loyalty" text (best-effort)
 
-### 3. AppWebView Component (`components/AppWebView.tsx`)
+### 3. WebShell Component (`components/WebShell.tsx`)
 
 Features:
 - **Shared cookies** across all tabs (users stay logged in)
-- **Message handling** for cart count, route hints, and loyalty
-- **Automatic tab switching** based on URL navigation
+- **Cart counter script** that scrapes the GreenHaus DOM and posts `CART_COUNT`
+- **Automatic tab switching** based on route hints
+- **Centralized logging** for troubleshooting badge updates
 - **Loading indicators** for better UX
-- **Pull-to-refresh** enabled
-- **Safe area handling** with proper insets
+- **Safe area compatible** layout and error handling
 
 Props:
 - `initialUrl`: Starting URL for the WebView
-- `webViewRef`: Optional ref for external control
+- `tabKey`: Tab identifier used for logging and route handling
+- Additional `WebView` props are forwarded as needed
 
 ### 4. Tab Navigation (`app/(tabs)/_layout.tsx`)
 
@@ -83,7 +84,7 @@ Bottom tabs (5 total):
 
 ### 5. Individual Tab Screens
 
-Each tab uses `AppWebView` with:
+Each tab renders `WebShell` with:
 - Proper WebView ref from `WebViewContext`
 - Correct Store URL
 - Stack.Screen configuration (headerShown: false)
