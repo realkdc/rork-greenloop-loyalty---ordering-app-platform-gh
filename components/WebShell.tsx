@@ -35,98 +35,126 @@ true;
 const CART_COUNTER_SCRIPT = `
 (function(){
   if (window.__ghCC?.installed) return;
-  window.__ghCC = { installed: true, active: true, lastSent: undefined, lastKnown: 0 };
+  window.__ghCC = { installed: true, active: true, lastSent: undefined, timer: null };
 
   const d = document;
   const q  = (sel) => d.querySelector(sel);
   const qAll = (sel) => d.querySelectorAll(sel);
 
-  function toInt(x){
-    const n = parseInt(String(x ?? '').trim().replace(/[^0-9]/g,''),10);
+  function parseIntSafe(x){
+    const n = parseInt(String(x).trim(),10);
     return Number.isFinite(n) ? n : null;
   }
 
   function readCount(){
     let n = null;
 
-    const headerCand = q('a.ins-header__icon.ins-header__icon--cart[data-count]');
-    if (headerCand) n = toInt(headerCand.getAttribute('data-count'));
-
-    if (n === null) {
-      const bag = Array.from(qAll('a,button,li')).find(e => /shopping\s*bag\s*\(\d+\)/i.test(e.textContent||''));
-      if (bag) n = toInt((bag.textContent.match(/\((\d+)\)/)||[])[1]);
+    // Test 1: Header badge - PRIMARY METHOD
+    const el = q('a.ins-header__icon.ins-header__icon--cart[data-count]');
+    if (el) {
+      const attr = el.getAttribute('data-count');
+      n = parseIntSafe(attr);
+      console.log('[GH Cart] Header badge data-count:', attr, '→', n);
     }
 
-    if (n === null && /\/products\/cart/i.test(location.pathname)) {
-      const itemsText = Array.from(qAll('*')).find(e => /^\d+\s*items?$/i.test((e.textContent||'').trim()));
-      if (itemsText) {
-        n = toInt((itemsText.textContent.match(/^(\d+)/)||[])[1]);
+    // Test 2: Footer quick-link text
+    if (n === null) {
+      const bag = Array.from(qAll('a,button,li')).find(e => /shopping bag\\s*\\((\\d+)\\)/i.test(e.textContent||''));
+      if (bag) {
+        const match = bag.textContent.match(/\\((\\d+)\\)/);
+        n = parseIntSafe(match ? match[1] : null);
+        console.log('[GH Cart] Footer bag text:', bag.textContent, '→', n);
       }
     }
 
-    if (n === null && /\/products\/cart/i.test(location.pathname)) {
+    // Test 3: Cart page item count
+    if (n === null && /\\/products\\/cart/i.test(location.pathname)) {
       const items = qAll('.ec-cart__products li, [data-cart-item], .cart__item');
-      n = toInt(items.length);
+      n = items.length > 0 ? items.length : 0;
+      console.log('[GH Cart] Cart page items:', items.length, '→', n);
     }
 
+    // Test 4: Mini widget counters
     if (n === null) {
-      const w = q('.ec-cart-widget__counter, .cart-counter, [data-cart-count], .cart-count, .CartCount, .header-cart-count, .js-cart-count, .site-header__cart-count, .cart__count, [class*="cart-count"], [id*="cart-count"], .bag-count, .mini-cart__count');
-      if (w) n = toInt(w.getAttribute?.('data-cart-count') || w.getAttribute?.('data-count') || w.textContent);
+      const w = q('.ec-cart-widget__counter, .cart-counter, [data-cart-count]');
+      if (w) {
+        n = parseIntSafe(w.getAttribute('data-cart-count') || w.textContent);
+        console.log('[GH Cart] Widget counter:', w, '→', n);
+      }
     }
 
-    if (n === null) {
-      try {
-        const ls = localStorage.getItem('__gh_cart_count') || localStorage.getItem('cart_count') || localStorage.getItem('theme:cartCount');
-        if (ls != null) n = toInt(ls);
-      } catch(_) {}
-    }
-
+    // Test 5: Ecwid API - ASYNC FALLBACK
     if (n === null && window.Ecwid?.getCart) {
       try {
         window.Ecwid.getCart(function(cart) {
-          const count = Number(cart?.productsQuantity ?? 0) || 0;
-          persistAndPost(count, true);
+          const count = cart?.productsQuantity || 0;
+          console.log('[GH Cart] Ecwid getCart:', count);
+          postCount(count, true);
         });
-      } catch(_) {}
+      } catch(e) {
+        console.log('[GH Cart] Ecwid error:', e);
+      }
+    }
+
+    if (n === null) {
+      console.log('[GH Cart] No count found, defaulting to 0');
+      n = 0;
     }
 
     return n;
   }
 
-  function persistAndPost(value, force){
+  function postCount(value, force=false){
     if (!window.__ghCC.active && !force) return;
-    const v = Math.max(0, Math.min(999, Number(value)||0));
-    try { localStorage.setItem('__gh_cart_count', String(v)); } catch(_) {}
-    window.__ghCC.lastKnown = v;
-    const payload = { type:'CART_COUNT', value: v, source: location.pathname };
+    const payload = { type:'CART_COUNT', value, source: location.pathname };
     const same = JSON.stringify(payload) === JSON.stringify(window.__ghCC.lastSent);
     if (!force && same) return;
     window.__ghCC.lastSent = payload;
-    window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+    console.log('[GH Cart] Posting to RN:', payload);
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+    }
   }
 
-  const debouncedPost = (()=>{ let t; return ()=>{ clearTimeout(t); t=setTimeout(()=>{
-    const n = readCount();
-    if (n === null) return; // unknown -> do not flicker
-    persistAndPost(n, false);
-  }, 300); }; })();
+  const debouncedPost = (()=> {
+    let t; 
+    return ()=>{ 
+      clearTimeout(t); 
+      t=setTimeout(()=>{
+        const n = readCount();
+        postCount(n, false);
+      }, 300); 
+    }
+  })();
 
   const mo = new MutationObserver(debouncedPost);
   mo.observe(d.documentElement, { childList:true, subtree:true, attributes:true });
 
-  ['pageshow','visibilitychange','popstate','hashchange'].forEach(ev => addEventListener(ev, debouncedPost, {passive:true}));
+  ['pageshow','visibilitychange','popstate','hashchange'].forEach(ev => 
+    addEventListener(ev, debouncedPost, {passive:true})
+  );
 
   setTimeout(()=>{
-    // warm with last known immediately
-    try { const warm = localStorage.getItem('__gh_cart_count'); if (warm != null) persistAndPost(Number(warm)||0, true); } catch(_) {}
     const n = readCount();
-    if (n !== null) persistAndPost(n, true);
-  }, 50);
+    postCount(n, true);
+  }, 100);
 
   addEventListener('message', (e)=>{
-    let msg; try { msg = JSON.parse(String(e.data||'{}')); } catch { return; }
-    if (msg.type === 'TAB_ACTIVE') { window.__ghCC.active = !!msg.value; const n = readCount(); if (n !== null) persistAndPost(n, true); else if (window.__ghCC.lastKnown > 0) persistAndPost(window.__ghCC.lastKnown, true); }
-    if (msg.type === 'PING') { const n = readCount(); if (n !== null) persistAndPost(n, true); }
+    let msg;
+    try { 
+      msg = JSON.parse(String(e.data||'{}')); 
+    } catch { 
+      return; 
+    }
+    if (msg.type === 'TAB_ACTIVE') { 
+      window.__ghCC.active = !!msg.value; 
+      const n = readCount();
+      postCount(n, true); 
+    }
+    if (msg.type === 'PING') { 
+      const n = readCount();
+      postCount(n, true); 
+    }
   });
 })();
 `;
@@ -259,7 +287,11 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
     const handleMessage = useCallback((event: any) => {
       try {
-        const msg = JSON.parse(event.nativeEvent.data || '{}');
+        const rawData = event.nativeEvent.data || '{}';
+        console.log(`[WebShell:${tabKey}] 📨 Raw message received:`, rawData);
+        
+        const msg = JSON.parse(rawData);
+        console.log(`[WebShell:${tabKey}] 📨 Parsed message:`, msg);
         
         if (msg.type === 'CART_COUNT' || msg.type === 'CART') {
           const count = Number(msg.value ?? msg.count ?? 0);
@@ -268,15 +300,20 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           setCartCount(normalized);
         } else if (msg.type === 'NAVIGATE_TAB') {
           if (msg.tab && msg.tab !== tabKey) {
+            console.log(`[WebShell:${tabKey}] 🧭 Navigating to tab:`, msg.tab);
             router.push(`/(tabs)/${msg.tab}` as any);
           }
+        } else if (msg.type === 'EMAIL_LINK_SENT') {
+          console.log(`[WebShell:${tabKey}] 📧 Email link sent detected`);
+        } else {
+          console.log(`[WebShell:${tabKey}] 📨 Unknown message type:`, msg.type);
         }
         
         if (props.onMessage) {
           props.onMessage(event);
         }
       } catch (error) {
-        console.error('WebShell message error:', error);
+        console.error(`[WebShell:${tabKey}] ❌ Message parse error:`, error, 'raw data:', event.nativeEvent.data);
       }
     }, [setCartCount, router, tabKey, props]);
 
@@ -319,19 +356,25 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
     useFocusEffect(
       useCallback(() => {
-        console.log(`[WebShell:${tabKey}] Tab focused`);
+        console.log(`[WebShell:${tabKey}] 🎯 Tab focused`);
         isActiveRef.current = true;
         const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
         if (actualRef && isMountedRef.current) {
-          console.log(`[WebShell:${tabKey}] Sending TAB_ACTIVE=true`);
+          console.log(`[WebShell:${tabKey}] 📤 Sending TAB_ACTIVE=true`);
           actualRef.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true }));
+          
+          // Also send a PING to trigger immediate cart count check
+          setTimeout(() => {
+            console.log(`[WebShell:${tabKey}] 📤 Sending PING for cart check`);
+            actualRef.postMessage(JSON.stringify({ type: 'PING' }));
+          }, 100);
         }
         return () => {
-          console.log(`[WebShell:${tabKey}] Tab blurred`);
+          console.log(`[WebShell:${tabKey}] 👋 Tab blurred`);
           isActiveRef.current = false;
           const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
           if (actualRef) {
-            console.log(`[WebShell:${tabKey}] Sending TAB_ACTIVE=false`);
+            console.log(`[WebShell:${tabKey}] 📤 Sending TAB_ACTIVE=false`);
             actualRef.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: false }));
           }
         };

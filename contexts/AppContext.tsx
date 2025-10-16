@@ -34,19 +34,19 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [cartCount, setCartCountInternal] = useState<number>(cartBadge.get());
 
   useEffect(() => {
-    console.log('[AppContext] Subscribing to cartBadge');
+    console.log('[AppContext] 📡 Subscribing to cartBadge');
     const unsub = cartBadge.on((n) => {
-      console.log('[AppContext] cartBadge emitted:', n);
+      console.log('[AppContext] 📊 cartBadge emitted:', n, 'type:', typeof n);
       setCartCountInternal(n);
     });
     return () => {
-      console.log('[AppContext] Unsubscribing from cartBadge');
+      console.log('[AppContext] 📡 Unsubscribing from cartBadge');
       unsub();
     };
   }, []);
 
   const setCartCount = useCallback((count: number | null) => {
-    console.log('[AppContext] setCartCount called with:', count);
+    console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
     cartBadge.set(count);
   }, []);
 

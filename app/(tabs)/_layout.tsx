@@ -32,7 +32,7 @@ const TAB_LABELS: Record<string, string> = {
 export default function Layout() {
   const { cartCount } = useApp();
 
-  console.log('[TabLayout] Rendering with cartCount:', cartCount);
+  console.log('[TabLayout] 🎨 Rendering with cartCount:', cartCount, 'type:', typeof cartCount, 'will show badge:', cartCount > 0);
 
   return (
     <Tabs 
