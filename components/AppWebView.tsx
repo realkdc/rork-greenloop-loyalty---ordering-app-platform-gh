@@ -26,12 +26,14 @@ const AppWebView = forwardRef<WebView, AppWebViewProps>(({ initialUrl, webViewRe
   const handleMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      console.log('[AppWebView] 📨 Message received:', data);
       
       if (data.type === 'CART_COUNT' || data.type === 'CART') {
         const count = Number(data.value ?? data.count ?? 0);
         const normalized = isFinite(count) ? Math.max(0, Math.min(999, count)) : 0;
-        console.log('📊 Cart count update:', normalized, 'from:', data);
+        console.log('[AppWebView] 📊 Cart count update:', normalized, 'from:', data, '| calling setCartCount...');
         setCartCount(normalized);
+        console.log('[AppWebView] ✅ setCartCount called');
       }
 
       if (data.type === 'ROUTE_HINT') {
@@ -253,7 +255,12 @@ const AppWebView = forwardRef<WebView, AppWebViewProps>(({ initialUrl, webViewRe
       setTimeout(()=>{
         const n = readCount();
         postCount(n, true);
-      }, 100);
+      }, 500);
+
+      setTimeout(()=>{
+        const n = readCount();
+        postCount(n, true);
+      }, 2000);
 
       addEventListener('message', (e)=>{
         let msg;

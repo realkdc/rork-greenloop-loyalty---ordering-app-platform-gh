@@ -137,7 +137,17 @@ const CART_COUNTER_SCRIPT = `
   setTimeout(()=>{
     const n = readCount();
     postCount(n, true);
-  }, 100);
+  }, 500);
+
+  setTimeout(()=>{
+    const n = readCount();
+    postCount(n, true);
+  }, 2000);
+
+  setTimeout(()=>{
+    const n = readCount();
+    postCount(n, true);
+  }, 4000);
 
   addEventListener('message', (e)=>{
     let msg;
@@ -331,7 +341,15 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
     const handleLoadEnd = useCallback(() => {
       setIsLoading(false);
-    }, []);
+      console.log(`[WebShell:${tabKey}] ✅ Load complete, requesting cart count`);
+      const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+      if (actualRef) {
+        setTimeout(() => {
+          console.log(`[WebShell:${tabKey}] 📤 Sending PING after load`);
+          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
+        }, 500);
+      }
+    }, [ref, tabKey]);
 
     useEffect(() => {
       isMountedRef.current = true;
