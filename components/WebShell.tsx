@@ -34,8 +34,13 @@ true;
 
 const CART_COUNTER_SCRIPT = `
 (function(){
-  if (window.__ghCC?.installed) return;
+  console.log('🚀 CART SCRIPT STARTING - WebShell version');
+  if (window.__ghCC?.installed) {
+    console.log('🚀 Cart script already installed, skipping');
+    return;
+  }
   window.__ghCC = { installed: true, active: true, lastSent: undefined, timer: null };
+  console.log('🚀 Cart script installed successfully');
 
   const d = document;
   const q  = (sel) => d.querySelector(sel);
@@ -439,7 +444,6 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           pullToRefreshEnabled={false}
           injectedJavaScriptBeforeContentLoaded={INJECTED_CSS}
           injectedJavaScript={`
-            ${INJECTED_CSS}
             ${CART_COUNTER_SCRIPT}
             ${INJECTED_JS}
           `}
