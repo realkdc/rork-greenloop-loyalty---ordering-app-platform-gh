@@ -64,14 +64,14 @@ export default function Layout() {
               tabBarIcon: ({ focused, color, size }) => {
                 const iconName = focused ? iconConfig.filled : iconConfig.outline;
                 return (
-                  <View style={styles.iconWrapper}>
+                  <View style={styles.iconWrapper} testID={`${name}-tab-icon`}>
                     <Ionicons
                       name={iconName}
                       size={size || 24}
                       color={color || "#9ca3af"}
                     />
                     {name === "cart" && cartCount > 0 && (
-                      <View style={styles.badge}>
+                      <View style={styles.badge} testID="cart-badge">
                         <Text style={styles.badgeLabel}>
                           {cartCount > 99 ? "99+" : String(cartCount)}
                         </Text>
@@ -81,7 +81,24 @@ export default function Layout() {
                 );
               },
             }}
-
+            listeners={{
+              tabPress: () => {
+                try {
+                  const ref = webviewRefs[name];
+                  const current = ref?.current;
+                  if (current) {
+                    console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
+                    try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
+                    try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
+                    try { current.reload(); } catch {}
+                  } else {
+                    console.log(`[Tabs] ⚠️ No webviewRef for ${name}`);
+                  }
+                } catch (e) {
+                  console.log('[Tabs] tabPress error:', e);
+                }
+              },
+            }}
           />
         );
       })}
