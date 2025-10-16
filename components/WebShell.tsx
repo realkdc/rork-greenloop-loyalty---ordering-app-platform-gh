@@ -320,6 +320,8 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           }
         } else if (msg.type === 'EMAIL_LINK_SENT') {
           console.log(`[WebShell:${tabKey}] 📧 Email link sent detected`);
+        } else if (msg.type === 'DEBUG_TEST') {
+          console.log(`[WebShell:${tabKey}] 🔍 DEBUG TEST RECEIVED:`, msg.value, 'at', new Date(msg.timestamp).toLocaleTimeString());
         } else {
           console.log(`[WebShell:${tabKey}] 📨 Unknown message type:`, msg.type);
         }
@@ -446,6 +448,22 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           injectedJavaScript={`
             ${CART_COUNTER_SCRIPT}
             ${INJECTED_JS}
+            
+            // Debug script to help troubleshoot
+            setTimeout(() => {
+              console.log('🔍 WEBVIEW DEBUG - Script injection completed');
+              console.log('🔍 Window.ReactNativeWebView available:', !!window.ReactNativeWebView);
+              console.log('🔍 Cart script installed:', !!window.__ghCC);
+              
+              // Send a test message
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'DEBUG_TEST',
+                  value: 'WebView script is running',
+                  timestamp: Date.now()
+                }));
+              }
+            }, 2000);
           `}
           onMessage={handleMessage}
           onError={handleError}
