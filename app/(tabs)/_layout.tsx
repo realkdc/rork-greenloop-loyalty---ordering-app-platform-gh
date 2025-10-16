@@ -1,5 +1,6 @@
 /* eslint-disable @rork/linters/expo-router-unnecessary-tabs */
 import { Tabs } from "expo-router";
+import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -57,23 +58,21 @@ export default function Layout() {
               tabBarIcon: ({ focused, color, size }) => {
                 const iconName = focused ? iconConfig.filled : iconConfig.outline;
                 return (
-                  <Ionicons
-                    name={iconName}
-                    size={size || 24}
-                    color={color || "#9ca3af"}
-                  />
+                  <View style={styles.iconWrapper}>
+                    <Ionicons
+                      name={iconName}
+                      size={size || 24}
+                      color={color || "#9ca3af"}
+                    />
+                    {name === "cart" && cartCount > 0 && (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeLabel}>
+                          {cartCount > 99 ? "99+" : cartCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 );
-              },
-              tabBarBadge: name === "cart" && cartCount > 0 ? cartCount : undefined,
-              tabBarBadgeStyle: {
-                backgroundColor: "#22c55e",
-                color: "#fff",
-                fontSize: 12,
-                fontWeight: "600",
-                minWidth: 18,
-                height: 18,
-                borderRadius: 9,
-                paddingHorizontal: 4,
               },
             }}
 
@@ -83,3 +82,28 @@ export default function Layout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  iconWrapper: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#22c55e",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  badgeLabel: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+});
