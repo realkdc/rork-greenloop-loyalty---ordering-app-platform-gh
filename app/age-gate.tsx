@@ -37,7 +37,7 @@ export default function AgeGateScreen() {
         <View style={styles.content}>
           <View style={styles.logoContainer}>
             <Image
-              source={require('@/assets/greenhaus/greenhaus-logo.png')}
+              source={require('../assets/greenhaus/greenhaus-logo.png')}
               style={styles.logo}
               resizeMode="contain"
             />
