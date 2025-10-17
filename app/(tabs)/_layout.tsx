@@ -89,9 +89,31 @@ export default function Layout() {
                   const current = ref?.current;
                   if (current) {
                     if (name === 'home') {
-                      console.log(`[Tabs] 🏠 Home tab pressed → redirecting to base URL and refreshing`);
-                      try { current.injectJavaScript(`(function(){ try{ window.location.href='${Store.HOME}'; }catch(e){}; true; })();`); } catch {}
-                      try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
+                      console.log(`[Tabs] 🏠 Home tab pressed → navigating to ${Store.HOME}`);
+                      const navScript = `
+                        (function(){
+                          try {
+                            const currentUrl = window.location.href;
+                            const homeUrl = '${Store.HOME}';
+                            console.log('[WebView] Current URL:', currentUrl);
+                            console.log('[WebView] Navigating to home:', homeUrl);
+                            
+                            if (currentUrl.toLowerCase().replace(/\\/$/, '') !== homeUrl.toLowerCase().replace(/\\/$/, '')) {
+                              window.location.href = homeUrl;
+                            } else {
+                              window.scrollTo(0, 0);
+                              window.location.reload();
+                            }
+                          } catch(e) {
+                            console.error('[WebView] Navigation error:', e);
+                          }
+                          return true;
+                        })();
+                      `;
+                      try { current.injectJavaScript(navScript); } catch {}
+                      setTimeout(() => {
+                        try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
+                      }, 300);
                     } else {
                       console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
                       try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
