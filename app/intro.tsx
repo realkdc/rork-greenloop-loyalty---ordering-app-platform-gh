@@ -43,7 +43,7 @@ export default function IntroScreen() {
     <View style={styles.container}>
       <Animated.View style={[styles.logoContainer, { opacity, transform: [{ scale }] }]}>
         <Image
-          source={{ uri: 'https://toolkit.rork.com/api/static/greenhaus-logo.png' }}
+          source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/nrkgvzgs6iujt20c9jdch' }}
           style={styles.logo}
           resizeMode="contain"
         />
