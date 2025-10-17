@@ -3,9 +3,12 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal } from 'rea
 import { X } from 'lucide-react-native';
 import { useApp } from '@/contexts/AppContext';
 import { GREENHAUS } from '@/config/greenhaus';
+import { StorageService } from '@/services/storage';
+import { router } from 'expo-router';
 
 export function DebugMenu() {
   const [visible, setVisible] = useState<boolean>(false);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
   const { cartCount } = useApp();
 
   if (__DEV__ === false) {
@@ -79,6 +82,28 @@ export function DebugMenu() {
                 <Text style={styles.feature}>• Breadcrumbs (Home / Store / ...)</Text>
                 <Text style={styles.feature}>• Quick-links grid at bottom</Text>
                 <Text style={styles.feature}>• Extra padding/gaps</Text>
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Actions</Text>
+                <TouchableOpacity
+                  style={[styles.actionButton, isResetting && styles.actionButtonDisabled]}
+                  onPress={async () => {
+                    if (isResetting) return;
+                    setIsResetting(true);
+                    await StorageService.setIntroSeen(false);
+                    console.log('✅ Intro flag reset');
+                    setVisible(false);
+                    setIsResetting(false);
+                    router.replace('/');
+                  }}
+                  disabled={isResetting}
+                >
+                  <Text style={styles.actionButtonText}>
+                    {isResetting ? 'Resetting...' : 'Reset Intro Flow'}
+                  </Text>
+                </TouchableOpacity>
+                <Text style={styles.info}>Clears intro completion flag and restarts app flow</Text>
               </View>
             </ScrollView>
           </View>
@@ -181,5 +206,21 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 4,
     lineHeight: 18,
+  },
+  actionButton: {
+    backgroundColor: '#1E4D3A',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center' as const,
+    marginBottom: 8,
+  },
+  actionButtonDisabled: {
+    backgroundColor: '#999',
+  },
+  actionButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600' as const,
   },
 });
