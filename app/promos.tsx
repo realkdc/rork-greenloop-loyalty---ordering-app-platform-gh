@@ -38,7 +38,7 @@ export default function PromosScreen() {
         } else {
           setRefreshing(true);
         }
-        const live = await getLivePromos();
+        const live = await getLivePromos({ storeIds: [storeSlug] });
         const filtered = live.filter((promo) => {
           if (!promo.storeId) return false;
           const slug = promo.storeId.toLowerCase();
