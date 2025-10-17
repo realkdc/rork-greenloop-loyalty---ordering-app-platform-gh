@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Leaf } from 'lucide-react-native';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
 
@@ -44,7 +43,11 @@ export default function IntroScreen() {
   return (
     <View style={styles.container}>
       <Animated.View style={[styles.logoContainer, { opacity, transform: [{ scale }] }]}>
-        <Leaf size={96} color="#FFFFFF" strokeWidth={1.5} />
+        <Image
+          source={require('@/assets/greenhaus/greenhaus-logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
       </Animated.View>
 
       <Text style={styles.tagline}>Elevating the GreenHaus experience</Text>
@@ -65,10 +68,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   logoContainer: {
-    width: 120,
+    width: 280,
     height: 120,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  logo: {
+    width: '100%',
+    height: '100%',
   },
   tagline: {
     marginTop: 32,
