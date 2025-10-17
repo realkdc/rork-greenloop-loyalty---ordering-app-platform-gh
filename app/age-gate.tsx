@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { X } from 'lucide-react-native';
@@ -41,15 +42,14 @@ export default function AgeGateScreen() {
               accessibilityLabel="GreenHaus logo"
               source={require('../assets/greenhaus/greenhaus-logo.png')}
               style={styles.logo}
-              resizeMode="contain"
-              fadeDuration={0}
-              onError={(e) => {
-                console.log('[AGE] Logo load error:', e.nativeEvent.error);
-                console.log('[AGE] ERROR - PNG require path invalid or asset bundling issue');
+              contentFit="contain"
+              transition={0}
+              cachePolicy="memory-disk"
+              onError={(error) => {
+                console.log('[AGE] Logo load error:', error);
               }}
-              onLoad={(e) => {
+              onLoad={() => {
                 console.log('[AGE] Logo loaded successfully');
-                console.log('[AGE] Image dimensions:', e.nativeEvent.source);
               }}
             />
           </View>
@@ -130,8 +130,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 280,
+    width: '100%',
     height: 120,
+    maxWidth: 280,
   },
   title: {
     fontSize: 32,
