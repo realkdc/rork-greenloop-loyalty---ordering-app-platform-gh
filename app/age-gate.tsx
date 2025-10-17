@@ -37,13 +37,15 @@ export default function AgeGateScreen() {
         <View style={styles.content}>
           <View style={styles.logoContainer}>
             <Image
-              source={require('@/assets/greenhaus/greenhaus-logo.png')}
+              testID="ageGateLogo"
+              accessibilityLabel="GreenHaus logo"
+              source={require('../assets/greenhaus/greenhaus-logo.png')}
               style={styles.logo}
               resizeMode="contain"
               fadeDuration={0}
               onError={(e) => {
                 console.log('[AGE] Logo load error:', e.nativeEvent.error);
-                console.log('[AGE] ERROR - PNG file might be corrupted or fully transparent');
+                console.log('[AGE] ERROR - PNG require path invalid or asset bundling issue');
               }}
               onLoad={(e) => {
                 console.log('[AGE] Logo loaded successfully');
