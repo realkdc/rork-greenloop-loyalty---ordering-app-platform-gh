@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, FlatList } from 'react-native';
-import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, FlatList, Platform } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { MapPin, Loader, AlertTriangle } from 'lucide-react-native';
 import * as Location from 'expo-location';
@@ -19,24 +19,59 @@ export default function GeoGateScreen() {
   const [eligibleStores, setEligibleStores] = useState<StoreInfo[]>([]);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  useEffect(() => {
-    const checkExistingPermission = async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-          console.log('[GEO] Permission already granted, auto-detecting location');
-          await detectAndProcessLocation(false);
-        }
-      } catch (error) {
-        console.error('[GEO] Error checking permission:', error);
-      }
-    };
-    
-    checkExistingPermission();
-  }, []);
-
-  const detectAndProcessLocation = async (requestPermission: boolean) => {
+  const handleStoreSelected = useCallback(async (store: StoreInfo) => {
     setLoading(true);
+    
+    const existing = await StorageService.getOnboardingState();
+    await StorageService.saveOnboardingState({
+      ageVerified: existing?.ageVerified || false,
+      state: store.state,
+      stateSupported: true,
+      activeStoreId: store.id,
+      completedOnboarding: true,
+    });
+    
+    await setSelectedStoreId(store.id);
+    await setOnboardingCompleted(true);
+
+    console.log('[GEO] Store selected:', store.id);
+    setLoading(false);
+    router.replace('/(tabs)/home');
+  }, [setSelectedStoreId, setOnboardingCompleted, router]);
+
+  const handleStateVerified = useCallback(async (state: string) => {
+    await setLastKnownState(state);
+    
+    const stores = STORES.filter(s => s.state === state);
+    setEligibleStores(stores);
+    
+    if (stores.length === 1) {
+      await handleStoreSelected(stores[0]);
+    } else {
+      setLoading(false);
+      setScreenState('stores');
+    }
+  }, [setLastKnownState, handleStoreSelected]);
+
+  const detectAndProcessLocation = useCallback(async (requestPermission: boolean) => {
+    if ((Platform.OS as string) === 'web') {
+      Alert.alert(
+        'Location Not Available',
+        'Location services are not supported in web preview. Please select your state manually or test on a real device.',
+        [{ text: 'OK', onPress: () => setShowManualSelector(true) }]
+      );
+      return;
+    }
+    
+    setLoading(true);
+    
+    const timeoutId = setTimeout(() => {
+      console.warn('[GEO] Location request timed out');
+      setLoading(false);
+      setShowManualSelector(true);
+      Alert.alert('Location Timeout', 'Location request took too long. Please select your state manually.');
+    }, 10000);
+    
     try {
       let status = 'granted';
       
@@ -47,6 +82,7 @@ export default function GeoGateScreen() {
       
       if (status !== 'granted') {
         console.log('[GEO] Location permission denied');
+        clearTimeout(timeoutId);
         setShowManualSelector(true);
         setLoading(false);
         return;
@@ -55,6 +91,8 @@ export default function GeoGateScreen() {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
+      
+      clearTimeout(timeoutId);
       
       setUserCoords({
         lat: location.coords.latitude,
@@ -94,47 +132,45 @@ export default function GeoGateScreen() {
       }
     } catch (error) {
       console.error('[GEO] Location error:', error);
+      clearTimeout(timeoutId);
       setShowManualSelector(true);
       setLoading(false);
+      
+      if ((Platform.OS as string) !== 'web') {
+        Alert.alert(
+          'Location Error',
+          'Could not get your location. Please select your state manually.',
+          [{ text: 'OK' }]
+        );
+      }
     }
-  };
+  }, [handleStateVerified]);
+
+  useEffect(() => {
+    const checkExistingPermission = async () => {
+      if ((Platform.OS as string) === 'web') {
+        console.log('[GEO] Web platform detected; skipping auto-location');
+        setShowManualSelector(true);
+        return;
+      }
+      
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          console.log('[GEO] Permission already granted, auto-detecting location');
+          await detectAndProcessLocation(false);
+        }
+      } catch (error) {
+        console.error('[GEO] Error checking permission:', error);
+        setShowManualSelector(true);
+      }
+    };
+    
+    checkExistingPermission();
+  }, [detectAndProcessLocation]);
 
   const handleUseMyLocation = async () => {
     await detectAndProcessLocation(true);
-  };
-
-  const handleStateVerified = async (state: string) => {
-    await setLastKnownState(state);
-    
-    const stores = STORES.filter(s => s.state === state);
-    setEligibleStores(stores);
-    
-    if (stores.length === 1) {
-      await handleStoreSelected(stores[0]);
-    } else {
-      setLoading(false);
-      setScreenState('stores');
-    }
-  };
-
-  const handleStoreSelected = async (store: StoreInfo) => {
-    setLoading(true);
-    
-    const existing = await StorageService.getOnboardingState();
-    await StorageService.saveOnboardingState({
-      ageVerified: existing?.ageVerified || false,
-      state: store.state,
-      stateSupported: true,
-      activeStoreId: store.id,
-      completedOnboarding: true,
-    });
-    
-    await setSelectedStoreId(store.id);
-    await setOnboardingCompleted(true);
-
-    console.log('[GEO] Store selected:', store.id);
-    setLoading(false);
-    router.replace('/(tabs)/home');
   };
 
   const handleManualTennesseeSelect = async () => {
