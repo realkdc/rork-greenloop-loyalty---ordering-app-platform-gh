@@ -48,8 +48,6 @@ export default function IntroScreen() {
           resizeMode="contain"
         />
       </Animated.View>
-
-      <Text style={styles.tagline}>Elevating the GreenHaus experience</Text>
     </View>
   );
 }
@@ -63,21 +61,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   logoContainer: {
-    width: 280,
-    height: 120,
+    width: 360,
+    height: 180,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logo: {
     width: '100%',
     height: '100%',
-  },
-  tagline: {
-    marginTop: 32,
-    color: 'rgba(0, 0, 0, 0.65)',
-    fontSize: 16,
-    textAlign: 'center',
-    letterSpacing: 0.4,
   },
 
 });
