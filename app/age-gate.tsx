@@ -1,7 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Image } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Leaf, X } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import { WebView } from 'react-native-webview';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
@@ -36,7 +36,11 @@ export default function AgeGateScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
           <View style={styles.logoContainer}>
-            <Leaf size={64} color="#1E4D3A" strokeWidth={2.5} />
+            <Image
+              source={require('@/assets/greenhaus/greenhaus-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
           </View>
 
           <Text style={styles.title}>Are you 21 or older?</Text>
@@ -111,6 +115,12 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     marginBottom: 48,
+    width: '100%',
+    alignItems: 'center',
+  },
+  logo: {
+    width: 200,
+    height: 80,
   },
   title: {
     fontSize: 32,
