@@ -12,10 +12,12 @@ import Colors from "@/constants/colors";
 import { StorageService } from "@/services/storage";
 import { useRouter } from "expo-router";
 import { AUTH_CONFIG } from "@/config/authConfig";
+import { useApp } from "@/contexts/AppContext";
 
 export default function ProfileTab() {
   const ref = useRef<WebView>(null);
   const router = useRouter();
+  const { clearOnboarding } = useApp();
   const [showPasteButton, setShowPasteButton] = useState<boolean>(false);
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const hasAppliedLinkRef = useRef<boolean>(false);
@@ -216,13 +218,7 @@ export default function ProfileTab() {
           text: 'Reset',
           style: 'destructive',
           onPress: async () => {
-            await StorageService.saveOnboardingState({
-              ageVerified: false,
-              state: null,
-              stateSupported: false,
-              activeStoreId: null,
-              completedOnboarding: false,
-            });
+            await clearOnboarding();
             console.log('🔄 Onboarding reset');
             router.replace('/');
           },

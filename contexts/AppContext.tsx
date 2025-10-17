@@ -16,6 +16,13 @@ interface AppState {
   setShopUrl: (url: string) => void;
   cartCount: number;
   setCartCount: (count: number | null) => void;
+  onboardingCompleted: boolean;
+  selectedStoreId: string | null;
+  lastKnownState: string | null;
+  setOnboardingCompleted: (completed: boolean) => Promise<void>;
+  setSelectedStoreId: (id: string | null) => Promise<void>;
+  setLastKnownState: (state: string | null) => Promise<void>;
+  clearOnboarding: () => Promise<void>;
   refreshTransactions: () => Promise<void>;
   refreshCampaigns: () => Promise<void>;
   addPoints: (points: number, description: string, campaignId?: string) => Promise<void>;
@@ -31,6 +38,9 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shopUrl, setShopUrl] = useState<string>('https://greenhauscc.com/products');
   const [cartCount, setCartCountInternal] = useState<number>(0);
+  const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean>(false);
+  const [selectedStoreId, setSelectedStoreIdState] = useState<string | null>(null);
+  const [lastKnownState, setLastKnownStateState] = useState<string | null>(null);
 
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
@@ -56,6 +66,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     const initialize = async () => {
       try {
         console.log('AppContext: Starting initialization');
+        const state = await StorageService.getOnboardingState();
+        setOnboardingCompletedState(state?.completedOnboarding || false);
+        setSelectedStoreIdState(state?.activeStoreId || null);
+        setLastKnownStateState(state?.state || null);
+        console.log('[AppContext] Loaded onboarding state:', state);
+        
         await CampaignService.initializeCampaigns();
         await refreshTransactions();
         await refreshCampaigns();
@@ -149,6 +165,62 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     };
   }, [user, addPoints]);
 
+  const setOnboardingCompleted = useCallback(async (completed: boolean) => {
+    const existing = await StorageService.getOnboardingState();
+    await StorageService.saveOnboardingState({
+      ...existing,
+      ageVerified: existing?.ageVerified || false,
+      state: existing?.state || null,
+      stateSupported: existing?.stateSupported || false,
+      activeStoreId: existing?.activeStoreId || null,
+      completedOnboarding: completed,
+    });
+    setOnboardingCompletedState(completed);
+    console.log('[AppContext] Onboarding completed:', completed);
+  }, []);
+
+  const setSelectedStoreId = useCallback(async (id: string | null) => {
+    const existing = await StorageService.getOnboardingState();
+    await StorageService.saveOnboardingState({
+      ...existing,
+      ageVerified: existing?.ageVerified || false,
+      state: existing?.state || null,
+      stateSupported: existing?.stateSupported || false,
+      activeStoreId: id,
+      completedOnboarding: existing?.completedOnboarding || false,
+    });
+    setSelectedStoreIdState(id);
+    console.log('[AppContext] Selected store ID:', id);
+  }, []);
+
+  const setLastKnownState = useCallback(async (state: string | null) => {
+    const existing = await StorageService.getOnboardingState();
+    await StorageService.saveOnboardingState({
+      ...existing,
+      ageVerified: existing?.ageVerified || false,
+      state: state,
+      stateSupported: existing?.stateSupported || false,
+      activeStoreId: existing?.activeStoreId || null,
+      completedOnboarding: existing?.completedOnboarding || false,
+    });
+    setLastKnownStateState(state);
+    console.log('[AppContext] Last known state:', state);
+  }, []);
+
+  const clearOnboarding = useCallback(async () => {
+    await StorageService.saveOnboardingState({
+      ageVerified: false,
+      state: null,
+      stateSupported: false,
+      activeStoreId: null,
+      completedOnboarding: false,
+    });
+    setOnboardingCompletedState(false);
+    setSelectedStoreIdState(null);
+    setLastKnownStateState(null);
+    console.log('[AppContext] Onboarding cleared');
+  }, []);
+
   return useMemo(() => ({
     transactions,
     rewards,
@@ -158,10 +230,17 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setShopUrl,
     cartCount,
     setCartCount,
+    onboardingCompleted,
+    selectedStoreId,
+    lastKnownState,
+    setOnboardingCompleted,
+    setSelectedStoreId,
+    setLastKnownState,
+    clearOnboarding,
     refreshTransactions,
     refreshCampaigns,
     addPoints,
     redeemReward,
     redeemCode,
-  }), [transactions, rewards, campaigns, isLoading, shopUrl, cartCount, setCartCount, refreshTransactions, refreshCampaigns, addPoints, redeemReward, redeemCode]);
+  }), [transactions, rewards, campaigns, isLoading, shopUrl, cartCount, setCartCount, onboardingCompleted, selectedStoreId, lastKnownState, setOnboardingCompleted, setSelectedStoreId, setLastKnownState, clearOnboarding, refreshTransactions, refreshCampaigns, addPoints, redeemReward, redeemCode]);
 });

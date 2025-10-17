@@ -1,37 +1,73 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
-import { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, FlatList } from 'react-native';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'expo-router';
-import { MapPin, Loader } from 'lucide-react-native';
+import { MapPin, Loader, AlertTriangle } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { StorageService } from '@/services/storage';
-import { STORES } from '@/constants/stores';
+import { STORES, type StoreInfo } from '@/config/greenhaus';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useApp } from '@/contexts/AppContext';
+
+type ScreenState = 'location' | 'restricted' | 'stores';
 
 export default function GeoGateScreen() {
   const router = useRouter();
+  const { setSelectedStoreId, setLastKnownState, setOnboardingCompleted } = useApp();
   const [loading, setLoading] = useState(false);
   const [showManualSelector, setShowManualSelector] = useState(false);
+  const [screenState, setScreenState] = useState<ScreenState>('location');
+  const [eligibleStores, setEligibleStores] = useState<StoreInfo[]>([]);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
 
-  const handleUseMyLocation = async () => {
+  useEffect(() => {
+    const checkExistingPermission = async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          console.log('[GEO] Permission already granted, auto-detecting location');
+          await detectAndProcessLocation(false);
+        }
+      } catch (error) {
+        console.error('[GEO] Error checking permission:', error);
+      }
+    };
+    
+    checkExistingPermission();
+  }, []);
+
+  const detectAndProcessLocation = async (requestPermission: boolean) => {
     setLoading(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      let status = 'granted';
+      
+      if (requestPermission) {
+        const result = await Location.requestForegroundPermissionsAsync();
+        status = result.status;
+      }
       
       if (status !== 'granted') {
-        console.log('Location permission denied');
+        console.log('[GEO] Location permission denied');
         setShowManualSelector(true);
         setLoading(false);
         return;
       }
 
-      const location = await Location.getCurrentPositionAsync({});
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      
+      setUserCoords({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+      });
+      
       const geocodes = await Location.reverseGeocodeAsync({
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
       });
 
       if (!geocodes || geocodes.length === 0) {
-        console.log('No geocode results');
+        console.log('[GEO] No geocode results');
         setShowManualSelector(true);
         setLoading(false);
         return;
@@ -39,48 +75,154 @@ export default function GeoGateScreen() {
 
       const geocode = geocodes[0];
       if (!geocode) {
-        console.log('No geocode data');
+        console.log('[GEO] No geocode data');
         setShowManualSelector(true);
         setLoading(false);
         return;
       }
       
       const detectedState = geocode.region || '';
-      console.log('Detected state:', detectedState);
+      console.log('[GEO] Detected state:', detectedState);
       
-      if (detectedState === 'TN' || detectedState === 'Tennessee') {
-        await handleTennesseeSelected();
+      const normalized = /tennessee/i.test(detectedState) ? 'TN' : detectedState;
+      
+      if (normalized === 'TN') {
+        await handleStateVerified('TN');
       } else {
         setLoading(false);
-        setShowManualSelector(true);
-        Alert.alert(
-          'Location Not Supported',
-          'Sorry, we only serve Tennessee. Please choose your state manually if you think this is a mistake.',
-          [{ text: 'OK' }]
-        );
+        setScreenState('restricted');
       }
     } catch (error) {
-      console.error('Location error:', error);
+      console.error('[GEO] Location error:', error);
       setShowManualSelector(true);
       setLoading(false);
     }
   };
 
-  const handleTennesseeSelected = async () => {
-    const onlineStore = STORES[0];
+  const handleUseMyLocation = async () => {
+    await detectAndProcessLocation(true);
+  };
+
+  const handleStateVerified = async (state: string) => {
+    await setLastKnownState(state);
+    
+    const stores = STORES.filter(s => s.state === state);
+    setEligibleStores(stores);
+    
+    if (stores.length === 1) {
+      await handleStoreSelected(stores[0]);
+    } else {
+      setLoading(false);
+      setScreenState('stores');
+    }
+  };
+
+  const handleStoreSelected = async (store: StoreInfo) => {
+    setLoading(true);
     
     const existing = await StorageService.getOnboardingState();
     await StorageService.saveOnboardingState({
       ageVerified: existing?.ageVerified || false,
-      state: 'TN',
+      state: store.state,
       stateSupported: true,
-      activeStoreId: onlineStore.id,
+      activeStoreId: store.id,
       completedOnboarding: true,
     });
+    
+    await setSelectedStoreId(store.id);
+    await setOnboardingCompleted(true);
 
-    console.log('TN selected, store set:', onlineStore.id);
+    console.log('[GEO] Store selected:', store.id);
+    setLoading(false);
     router.replace('/(tabs)/home');
   };
+
+  const handleManualTennesseeSelect = async () => {
+    await handleStateVerified('TN');
+  };
+
+  const calculateDistance = (storeLat: number, storeLng: number): string => {
+    if (!userCoords) return '';
+    
+    const R = 3959;
+    const dLat = ((storeLat - userCoords.lat) * Math.PI) / 180;
+    const dLon = ((storeLng - userCoords.lng) * Math.PI) / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos((userCoords.lat * Math.PI) / 180) *
+        Math.cos((storeLat * Math.PI) / 180) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    return `${distance.toFixed(1)} mi`;
+  };
+
+  if (screenState === 'restricted') {
+    return (
+      <View style={styles.wrapper}>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.content}>
+            <View style={styles.iconContainer}>
+              <AlertTriangle size={56} color="#DC2626" strokeWidth={2.5} />
+            </View>
+
+            <Text style={styles.title}>Geo-Restriction</Text>
+            <Text style={styles.subtitle}>
+              Due to app store policy, this app can only be used in states where our stores are located. Share your location to continue.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => setScreenState('location')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.buttonText}>Back</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
+
+  if (screenState === 'stores') {
+    return (
+      <View style={styles.wrapper}>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.storePickerContainer}>
+            <Text style={styles.title}>Select Your Store</Text>
+            <Text style={styles.subtitle}>Choose the GreenHaus location closest to you</Text>
+
+            <FlatList
+              data={eligibleStores}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.storeList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.storeCard}
+                  onPress={() => handleStoreSelected(item)}
+                  activeOpacity={0.85}
+                >
+                  <View style={styles.storeCardContent}>
+                    <Text style={styles.storeName}>{item.name}</Text>
+                    <Text style={styles.storeCity}>{item.city}, {item.state}</Text>
+                    {item.lat && item.lng && userCoords && (
+                      <Text style={styles.storeDistance}>
+                        {calculateDistance(item.lat, item.lng)} away
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.storeArrow}>
+                    <Text style={styles.storeArrowText}>→</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrapper}>
@@ -118,7 +260,7 @@ export default function GeoGateScreen() {
                 <View style={styles.stateContainer}>
                   <TouchableOpacity
                     style={styles.stateButton}
-                    onPress={handleTennesseeSelected}
+                    onPress={handleManualTennesseeSelect}
                     activeOpacity={0.85}
                   >
                     <Text style={styles.stateButtonText}>Tennessee</Text>
@@ -233,5 +375,56 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500' as const,
     color: '#1E4D3A',
+  },
+  storePickerContainer: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+  },
+  storeList: {
+    paddingTop: 24,
+  },
+  storeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  storeCardContent: {
+    flex: 1,
+  },
+  storeName: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#111827',
+    marginBottom: 4,
+  },
+  storeCity: {
+    fontSize: 15,
+    fontWeight: '500' as const,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  storeDistance: {
+    fontSize: 13,
+    fontWeight: '500' as const,
+    color: '#1E4D3A',
+  },
+  storeArrow: {
+    marginLeft: 12,
+  },
+  storeArrowText: {
+    fontSize: 24,
+    color: '#1E4D3A',
+    fontWeight: '600' as const,
   },
 });

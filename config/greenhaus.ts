@@ -1,3 +1,28 @@
+export const ALLOWED_STATES = ['TN'] as const;
+export type AllowedState = typeof ALLOWED_STATES[number];
+
+export type StoreInfo = {
+  id: string;
+  name: string;
+  city: string;
+  state: AllowedState;
+  lat?: number;
+  lng?: number;
+  onlineOrderUrl: string;
+};
+
+export const STORES: StoreInfo[] = [
+  {
+    id: 'greenhaus-tn-cookeville',
+    name: 'GreenHaus Cannabis Co.',
+    city: 'Cookeville',
+    state: 'TN',
+    onlineOrderUrl: 'https://greenhauscc.com',
+    lat: 36.1628,
+    lng: -85.5016,
+  },
+];
+
 export const Store = {
   HOME: "https://greenhauscc.com/",
   SEARCH: "https://greenhauscc.com/products",
