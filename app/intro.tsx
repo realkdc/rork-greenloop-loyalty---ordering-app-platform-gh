@@ -62,7 +62,7 @@ export default function IntroScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   },
   tagline: {
     marginTop: 32,
-    color: 'rgba(255, 255, 255, 0.85)',
+    color: 'rgba(0, 0, 0, 0.65)',
     fontSize: 16,
     textAlign: 'center',
     letterSpacing: 0.4,
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   skipButton: {
     position: 'absolute',
     bottom: 64,
-    backgroundColor: 'rgba(255, 255, 255, 0.14)',
+    backgroundColor: colors.primary,
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 999,
