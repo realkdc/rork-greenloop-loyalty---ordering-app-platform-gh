@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StorageService } from '@/services/storage';
@@ -8,6 +8,7 @@ export default function IntroScreen() {
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.85)).current;
   const navigating = useRef(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   const handleContinue = useCallback(async () => {
     if (navigating.current) return;
@@ -17,6 +18,8 @@ export default function IntroScreen() {
   }, [router]);
 
   useEffect(() => {
+    if (!imageLoaded) return;
+
     Animated.parallel([
       Animated.timing(opacity, {
         toValue: 1,
@@ -37,7 +40,7 @@ export default function IntroScreen() {
     return () => {
       clearTimeout(timer);
     };
-  }, [handleContinue, opacity, scale]);
+  }, [handleContinue, opacity, scale, imageLoaded]);
 
   return (
     <View style={styles.container}>
@@ -46,6 +49,7 @@ export default function IntroScreen() {
           source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/nrkgvzgs6iujt20c9jdch' }}
           style={styles.logo}
           resizeMode="contain"
+          onLoad={() => setImageLoaded(true)}
         />
       </Animated.View>
     </View>
