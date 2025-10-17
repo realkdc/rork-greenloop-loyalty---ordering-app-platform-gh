@@ -44,7 +44,7 @@ export default function IntroScreen() {
     <View style={styles.container}>
       <Animated.View style={[styles.logoContainer, { opacity, transform: [{ scale }] }]}>
         <Image
-          source={require('@/assets/greenhaus/greenhaus-logo.png')}
+          source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/59a66tzhlpbqockn595dw' }}
           style={styles.logo}
           resizeMode="contain"
         />
