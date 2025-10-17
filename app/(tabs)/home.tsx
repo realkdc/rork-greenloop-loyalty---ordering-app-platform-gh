@@ -4,11 +4,11 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { View, StyleSheet, Text, TouchableOpacity } from "react-native";
 import type { WebView } from "react-native-webview";
 import { useFocusEffect } from "@react-navigation/native";
-import { Timestamp, collection, getDocs, limit, orderBy, query, where } from "firebase/firestore";
+import { Timestamp, collection, getDocs, getFirestore, limit, orderBy, query, where } from "firebase/firestore";
 
 import { WebShell } from "@/components/WebShell";
 import { useApp } from "@/contexts/AppContext";
-import { firebaseConfig, firestore, getMissingFirebaseConfig } from "@/app/lib/firebase";
+import { app } from "@/app/lib/firebase";
 import { webviewRefs } from "./_layout";
 
 interface PromoRecord {
@@ -19,6 +19,18 @@ interface PromoRecord {
   storeId?: string;
   createdAt?: Date;
 }
+
+const REQUIRED_FIREBASE_KEYS = [
+  'EXPO_PUBLIC_FIREBASE_API_KEY',
+  'EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN',
+  'EXPO_PUBLIC_FIREBASE_PROJECT_ID',
+  'EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET',
+  'EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID',
+  'EXPO_PUBLIC_FIREBASE_APP_ID',
+] as const;
+
+const getMissingEnv = (): string[] =>
+  REQUIRED_FIREBASE_KEYS.filter((key) => !process.env[key]);
 
 function PromoSkeleton() {
   return (
@@ -47,7 +59,8 @@ export default function HomeTab() {
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
   const [indexWarning, setIndexWarning] = useState(false);
-  const missingEnv = useMemo(() => getMissingFirebaseConfig(), []);
+  const missingEnv = useMemo(() => getMissingEnv(), []);
+  const firestore = useMemo(() => getFirestore(app), []);
 
   const activeStoreId = useMemo(() => {
     if (storeSlug) return storeSlug;
@@ -70,7 +83,7 @@ export default function HomeTab() {
 
     const now = new Date();
     console.log('[PromoDebug] Querying promotions', {
-      projectId: firebaseConfig.projectId,
+      projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
       storeId: activeStoreId,
       constraints: {
         status: 'live',
@@ -118,7 +131,7 @@ export default function HomeTab() {
     } finally {
       setLoadingPromos(false);
     }
-  }, [activeStoreId, missingEnv]);
+  }, [activeStoreId, firestore, missingEnv]);
 
   useEffect(() => {
     fetchPromos();

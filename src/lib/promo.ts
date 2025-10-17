@@ -1,6 +1,7 @@
 import {
   collection,
   getDocs,
+  getFirestore,
   limit,
   orderBy,
   query,
@@ -8,7 +9,9 @@ import {
   DocumentData,
 } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
-import { firestore } from '@/app/lib/firebase';
+import { app } from '@/app/lib/firebase';
+
+const firestore = getFirestore(app);
 
 export type PromoRecord = {
   id: string;
