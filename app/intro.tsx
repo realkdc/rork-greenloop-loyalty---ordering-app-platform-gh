@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Leaf } from 'lucide-react-native';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
-
-const LOGO_SOURCE = {
-  uri: 'https://raw.githubusercontent.com/realkdc/rork-greenloop-loyalty---ordering-app-platform-gh/main/assets/greenhaus/greenhaus-logo.png',
-};
 
 export default function IntroScreen() {
   const router = useRouter();
@@ -46,11 +43,9 @@ export default function IntroScreen() {
 
   return (
     <View style={styles.container}>
-      <Animated.Image
-        source={LOGO_SOURCE}
-        style={[styles.logo, { opacity, transform: [{ scale }] }]}
-        resizeMode="contain"
-      />
+      <Animated.View style={[styles.logoContainer, { opacity, transform: [{ scale }] }]}>
+        <Leaf size={96} color="#FFFFFF" strokeWidth={1.5} />
+      </Animated.View>
 
       <Text style={styles.tagline}>Elevating the GreenHaus experience</Text>
 
@@ -69,9 +64,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 32,
   },
-  logo: {
-    width: 260,
+  logoContainer: {
+    width: 120,
     height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   tagline: {
     marginTop: 32,
