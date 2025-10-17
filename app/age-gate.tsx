@@ -41,13 +41,14 @@ export default function AgeGateScreen() {
               style={styles.logo}
               resizeMode="contain"
               fadeDuration={0}
-              onError={(e) => console.log('[AGE] Logo load error:', e.nativeEvent.error)}
-              onLoad={() => console.log('[AGE] Logo loaded successfully')}
-            />
-            <Image
-              source={{ uri: 'https://via.placeholder.com/280x120/1E4D3A/FFFFFF?text=GreenHaus' }}
-              style={[styles.logo, { position: 'absolute', opacity: 0.3 }]}
-              resizeMode="contain"
+              onError={(e) => {
+                console.log('[AGE] Logo load error:', e.nativeEvent.error);
+                console.log('[AGE] ERROR - PNG file might be corrupted or fully transparent');
+              }}
+              onLoad={(e) => {
+                console.log('[AGE] Logo loaded successfully');
+                console.log('[AGE] Image dimensions:', e.nativeEvent.source);
+              }}
             />
           </View>
 
