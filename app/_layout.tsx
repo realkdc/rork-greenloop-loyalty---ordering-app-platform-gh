@@ -10,6 +10,7 @@ import { AppProvider } from "@/contexts/AppContext";
 import { WebViewProvider } from "@/contexts/WebViewContext";
 import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
 import { DebugMenu } from "@/lib/debugMenu";
+import { trpc, trpcClient } from "@/lib/trpc";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -143,23 +144,25 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <SafeAreaProvider>
-          <AuthProvider>
-            <AppProvider>
-              <MagicLinkProvider>
-                <WebViewProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
-                    <DeepLinkHandler />
-                    <RootLayoutNav />
-                    <DebugMenu />
-                  </GestureHandlerRootView>
-                </WebViewProvider>
-              </MagicLinkProvider>
-            </AppProvider>
-          </AuthProvider>
-        </SafeAreaProvider>
-      </QueryClientProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <SafeAreaProvider>
+            <AuthProvider>
+              <AppProvider>
+                <MagicLinkProvider>
+                  <WebViewProvider>
+                    <GestureHandlerRootView style={{ flex: 1 }}>
+                      <DeepLinkHandler />
+                      <RootLayoutNav />
+                      <DebugMenu />
+                    </GestureHandlerRootView>
+                  </WebViewProvider>
+                </MagicLinkProvider>
+              </AppProvider>
+            </AuthProvider>
+          </SafeAreaProvider>
+        </QueryClientProvider>
+      </trpc.Provider>
     </ErrorBoundary>
   );
 }
