@@ -1,8 +1,7 @@
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Image } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { X } from 'lucide-react-native';
-import Svg, { Path } from 'react-native-svg';
 import { WebView } from 'react-native-webview';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
@@ -37,16 +36,13 @@ export default function AgeGateScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
           <View style={styles.logoContainer}>
-            <View style={styles.iconWrapper}>
-              <Svg width="80" height="80" viewBox="0 0 24 24" fill="none">
-                <Path
-                  d="M12 3C9.5 3 7.5 5 7.5 7.5C7.5 10 9.5 12 12 12C14.5 12 16.5 10 16.5 7.5C16.5 5 14.5 3 12 3ZM12 5C13.4 5 14.5 6.1 14.5 7.5C14.5 8.9 13.4 10 12 10C10.6 10 9.5 8.9 9.5 7.5C9.5 6.1 10.6 5 12 5ZM12 12C9.5 12 7.5 14 7.5 16.5C7.5 19 9.5 21 12 21C14.5 21 16.5 19 16.5 16.5C16.5 14 14.5 12 12 12ZM12 14C13.4 14 14.5 15.1 14.5 16.5C14.5 17.9 13.4 19 12 19C10.6 19 9.5 17.9 9.5 16.5C9.5 15.1 10.6 14 12 14Z"
-                  fill="#1E4D3A"
-                  stroke="#1E4D3A"
-                  strokeWidth="0.5"
-                />
-              </Svg>
-            </View>
+            <Image
+              source={require('../assets/greenhaus/greenhaus-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              onError={(e) => console.log('[AGE] logo load error', e.nativeEvent.error)}
+              onLoad={(e) => console.log('[AGE] logo loaded', e.nativeEvent.source)}
+            />
           </View>
 
           <Text style={styles.title}>Are you 21 or older?</Text>
@@ -124,13 +120,9 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  iconWrapper: {
-    width: 120,
+  logo: {
+    width: 280,
     height: 120,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   title: {
     fontSize: 32,
