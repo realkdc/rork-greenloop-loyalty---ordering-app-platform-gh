@@ -40,6 +40,14 @@ export default function AgeGateScreen() {
               source={require('../assets/greenhaus/greenhaus-logo.png')}
               style={styles.logo}
               resizeMode="contain"
+              fadeDuration={0}
+              onError={(e) => console.log('[AGE] Logo load error:', e.nativeEvent.error)}
+              onLoad={() => console.log('[AGE] Logo loaded successfully')}
+            />
+            <Image
+              source={{ uri: 'https://via.placeholder.com/280x120/1E4D3A/FFFFFF?text=GreenHaus' }}
+              style={[styles.logo, { position: 'absolute', opacity: 0.3 }]}
+              resizeMode="contain"
             />
           </View>
 
