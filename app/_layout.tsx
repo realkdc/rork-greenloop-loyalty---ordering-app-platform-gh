@@ -29,6 +29,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ title: "Admin" }} />
+      <Stack.Screen name="promos" options={{ title: "Promotions" }} />
       <Stack.Screen 
         name="qr-scanner" 
         options={{ 
