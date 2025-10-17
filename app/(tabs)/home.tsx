@@ -120,11 +120,6 @@ export default function HomeTab() {
             <Text style={styles.alertBody}>{missingEnv.join(', ')}</Text>
           </View>
         )}
-        {indexWarning && (
-          <View style={[styles.alertBox, styles.alertWarning]}>
-            <Text style={styles.alertTitle}>Composite index required—check Firebase console.</Text>
-          </View>
-        )}
         <View style={styles.promoDebugCard}>
           <View style={styles.debugHeader}>
             <View style={styles.badge}>
