@@ -49,25 +49,52 @@ function normalize(doc: DocumentData, id: string): PromoRecord {
   };
 }
 
-export async function getLivePromos(now = Date.now()): Promise<PromoRecord[]> {
+type PromoQueryOptions = {
+  storeIds: string[];
+  limit?: number;
+  now?: number;
+};
+
+export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Date.now() }: PromoQueryOptions): Promise<PromoRecord[]> {
   const nowDate = new Date(now);
   const promotionsRef = collection(firestore, 'promotions');
 
-  const baseQuery = query(
+  const normalizedStoreIds = (storeIds.length ? storeIds : ['cookeville', 'crossville']).map((id) => id.toLowerCase());
+  const storeFilter = normalizedStoreIds.length === 1
+    ? where('storeId', '==', normalizedStoreIds[0])
+    : where('storeId', 'in', normalizedStoreIds.slice(0, 10));
+
+  console.log('[PromoService] Querying Firestore collection', {
+    path: 'promotions',
+    storeIds: normalizedStoreIds,
+    limit: limitCount,
+  });
+
+  const q = query(
     promotionsRef,
     where('status', '==', 'live'),
-    where('startsAt', '<=', nowDate),
+    storeFilter,
     orderBy('startsAt', 'desc'),
-    limit(10)
+    limit(limitCount)
   );
 
-  const snapshot = await getDocs(baseQuery);
-  return snapshot.docs
+  const snapshot = await getDocs(q);
+  console.log('[PromoService] Raw docs fetched', snapshot.size);
+
+  const promos = snapshot.docs
     .map((doc) => normalize(doc.data(), doc.id))
     .filter((promo) => {
-      if (!promo.startsAt) return false;
-      if (promo.startsAt.getTime() > now) return false;
-      if (promo.endsAt && promo.endsAt.getTime() < now) return false;
-      return true;
+      const startsAt = promo.startsAt?.getTime();
+      const endsAt = promo.endsAt?.getTime();
+      if (startsAt === undefined) return false;
+      if (startsAt > now) return false;
+      if (endsAt !== undefined && endsAt < now) return false;
+      if (!promo.storeId) return true;
+      return normalizedStoreIds.length === 1
+        ? promo.storeId.toLowerCase().includes(normalizedStoreIds[0])
+        : normalizedStoreIds.some((id) => promo.storeId?.toLowerCase().includes(id));
     });
+
+  console.log('[PromoService] Active promos after filter', promos.length);
+  return promos;
 }

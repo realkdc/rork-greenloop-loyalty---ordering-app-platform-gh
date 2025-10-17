@@ -4,23 +4,10 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { View, StyleSheet, Text, TouchableOpacity } from "react-native";
 import type { WebView } from "react-native-webview";
 import { useFocusEffect } from "@react-navigation/native";
-import { Timestamp, collection, getDocs, getFirestore, limit, orderBy, query, where } from "firebase/firestore";
-
 import { WebShell } from "@/components/WebShell";
 import { useApp } from "@/contexts/AppContext";
-import { app } from "@/app/lib/firebase";
+import { getLivePromos, type PromoRecord } from "@/src/lib/promo";
 import { webviewRefs } from "./_layout";
-
-interface PromoRecord {
-  id: string;
-  title: string;
-  body?: string;
-  deepLinkUrl?: string;
-  storeId?: string;
-  startsAt?: Date;
-  endsAt?: Date;
-  createdAt?: Date;
-}
 
 const REQUIRED_FIREBASE_KEYS = [
   'EXPO_PUBLIC_FIREBASE_API_KEY',
@@ -60,9 +47,7 @@ export default function HomeTab() {
   const storeSlug = useMemo(() => normalizeStore(selectedStoreId), [selectedStoreId]);
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
-  const [indexWarning, setIndexWarning] = useState(false);
   const missingEnv = useMemo(() => getMissingEnv(), []);
-  const firestore = useMemo(() => getFirestore(app), []);
 
   const activeStoreId = useMemo(() => {
     if (storeSlug) return storeSlug;
@@ -83,47 +68,16 @@ export default function HomeTab() {
       return;
     }
 
-    const now = new Date();
-    console.log('[PromoDebug] Querying promotions', {
+    const storeIds = activeStoreId ? [activeStoreId] : ['cookeville', 'crossville'];
+    console.log('[PromoDebug] Fetching promos from collection \'promotions\'', {
       projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-      storeId: activeStoreId,
-      constraints: {
-        status: 'live',
-        startsAt: now.toISOString(),
-        orderBy: 'startsAt desc',
-        limit: 5,
-      },
+      storeIds,
     });
 
     try {
       setLoadingPromos(true);
-      const promotionsRef = collection(firestore, 'promotions');
-      const q = query(
-        promotionsRef,
-        where('status', '==', 'live'),
-        where('storeId', '==', activeStoreId),
-        where('startsAt', '<=', Timestamp.fromDate(now)),
-        orderBy('startsAt', 'desc'),
-        limit(5)
-      );
-
-      const snapshot = await getDocs(q);
-      const items = snapshot.docs
-        .map((doc) => {
-          const data: any = doc.data();
-          return {
-            id: doc.id,
-            title: data.title ?? '',
-            body: data.body ?? '',
-            deepLinkUrl: data.deepLinkUrl ?? data.url ?? undefined,
-            storeId: data.storeId ?? undefined,
-            startsAt: data.startsAt?.toDate?.() ?? undefined,
-            endsAt: data.endsAt?.toDate?.() ?? undefined,
-            createdAt: data.createdAt?.toDate?.() ?? undefined,
-          } satisfies PromoRecord;
-        })
-        .filter((promo) => !promo.endsAt || promo.endsAt.getTime() >= now.getTime());
-
+      const items = await getLivePromos({ storeIds, limit: 5 });
+      console.log('[PromoDebug] Promo query returned', items.length, 'documents');
       setPromos(items);
     } catch (error: any) {
       console.warn('[PromoDebug] Firestore query failed', error);
@@ -131,7 +85,7 @@ export default function HomeTab() {
     } finally {
       setLoadingPromos(false);
     }
-  }, [activeStoreId, firestore, missingEnv]);
+  }, [activeStoreId, missingEnv]);
 
   useEffect(() => {
     fetchPromos();
@@ -219,7 +173,7 @@ const styles = StyleSheet.create({
   },
   debugWrapper: {
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 36,
     paddingBottom: 8,
     backgroundColor: '#FFFFFF',
     gap: 12,
