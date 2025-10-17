@@ -1,11 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { MapPin, Loader } from 'lucide-react-native';
 import * as Location from 'expo-location';
-import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
-import { SUPPORTED_STATES, STATE_NAMES, getStoresByState } from '@/constants/stores';
+import { STORES } from '@/constants/stores';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function GeoGateScreen() {
@@ -13,11 +12,7 @@ export default function GeoGateScreen() {
   const [loading, setLoading] = useState(false);
   const [showManualSelector, setShowManualSelector] = useState(false);
 
-  useEffect(() => {
-    requestLocation();
-  }, []);
-
-  const requestLocation = async () => {
+  const handleUseMyLocation = async () => {
     setLoading(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -49,10 +44,21 @@ export default function GeoGateScreen() {
         setLoading(false);
         return;
       }
-      const detectedState = geocode.region || geocode.isoCountryCode || '';
-      console.log('Detected state:', detectedState, 'Full geocode:', geocode);
       
-      handleStateDetected(detectedState);
+      const detectedState = geocode.region || '';
+      console.log('Detected state:', detectedState);
+      
+      if (detectedState === 'TN' || detectedState === 'Tennessee') {
+        await handleTennesseeSelected();
+      } else {
+        setLoading(false);
+        setShowManualSelector(true);
+        Alert.alert(
+          'Location Not Supported',
+          'Sorry, we only serve Tennessee. Please choose your state manually if you think this is a mistake.',
+          [{ text: 'OK' }]
+        );
+      }
     } catch (error) {
       console.error('Location error:', error);
       setShowManualSelector(true);
@@ -60,58 +66,20 @@ export default function GeoGateScreen() {
     }
   };
 
-  const handleStateDetected = async (state: string) => {
-    const supported = SUPPORTED_STATES.includes(state as any);
+  const handleTennesseeSelected = async () => {
+    const onlineStore = STORES[0];
     
-    if (!supported) {
-      setShowManualSelector(true);
-      setLoading(false);
-      Alert.alert(
-        'Location Not Supported',
-        `We currently serve IL & NJ. Please select your state manually if you're in a supported area.`,
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-
-    const stores = getStoresByState(state);
-    if (stores.length === 0) {
-      setShowManualSelector(true);
-      setLoading(false);
-      return;
-    }
-
     const existing = await StorageService.getOnboardingState();
     await StorageService.saveOnboardingState({
       ageVerified: existing?.ageVerified || false,
-      state,
+      state: 'TN',
       stateSupported: true,
-      activeStoreId: existing?.activeStoreId || null,
-      completedOnboarding: false,
+      activeStoreId: onlineStore.id,
+      completedOnboarding: true,
     });
 
-    console.log('State saved, navigating to store-picker');
-    router.replace('/store-picker');
-  };
-
-  const handleManualStateSelect = async (state: string) => {
-    const stores = getStoresByState(state);
-    if (stores.length === 0) {
-      Alert.alert('No Stores', 'No stores available in this state yet.');
-      return;
-    }
-
-    const existing = await StorageService.getOnboardingState();
-    await StorageService.saveOnboardingState({
-      ageVerified: existing?.ageVerified || false,
-      state,
-      stateSupported: true,
-      activeStoreId: existing?.activeStoreId || null,
-      completedOnboarding: false,
-    });
-
-    console.log('Manual state selected, navigating to store-picker');
-    router.replace('/store-picker');
+    console.log('TN selected, store set:', onlineStore.id);
+    router.replace('/(tabs)/home');
   };
 
   return (
@@ -119,59 +87,55 @@ export default function GeoGateScreen() {
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.content}>
           <View style={styles.iconContainer}>
-            <MapPin size={56} color={colors.primary} strokeWidth={2.5} />
+            <MapPin size={56} color="#1E4D3A" strokeWidth={2.5} />
           </View>
 
-          <Text style={styles.title}>Location</Text>
+          <Text style={styles.title}>Where are you located?</Text>
           <Text style={styles.subtitle}>
             {showManualSelector
-              ? 'Select your state to find nearby stores'
-              : 'We need your location to find stores near you'}
+              ? 'Select your state to continue'
+              : 'We need your location to verify you are in Tennessee'}
           </Text>
 
           {loading && (
             <View style={styles.loadingContainer}>
-              <Loader size={32} color={colors.primary} />
+              <Loader size={32} color="#1E4D3A" />
               <Text style={styles.loadingText}>Getting your location...</Text>
             </View>
           )}
 
-          {showManualSelector && !loading && (
-            <View style={styles.stateContainer}>
-              <Text style={styles.stateTitle}>Select Your State</Text>
-              {SUPPORTED_STATES.map((state) => (
-                <TouchableOpacity
-                  key={state}
-                  style={styles.stateButton}
-                  onPress={() => handleManualStateSelect(state)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.stateButtonText}>{STATE_NAMES[state]}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          {!showManualSelector && !loading && (
-            <TouchableOpacity
-              style={styles.button}
-              onPress={requestLocation}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonText}>Request Location</Text>
-            </TouchableOpacity>
-          )}
-
           {!loading && (
-            <TouchableOpacity
-              style={styles.linkButton}
-              onPress={() => setShowManualSelector(!showManualSelector)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.linkText}>
-                {showManualSelector ? 'Use My Location' : 'Select State Manually'}
-              </Text>
-            </TouchableOpacity>
+            <>
+              {!showManualSelector ? (
+                <TouchableOpacity
+                  style={styles.button}
+                  onPress={handleUseMyLocation}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.buttonText}>Use My Location</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.stateContainer}>
+                  <TouchableOpacity
+                    style={styles.stateButton}
+                    onPress={handleTennesseeSelected}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.stateButtonText}>Tennessee</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={() => setShowManualSelector(!showManualSelector)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.linkText}>
+                  {showManualSelector ? 'Use My Location' : 'Select State Manually'}
+                </Text>
+              </TouchableOpacity>
+            </>
           )}
         </ScrollView>
       </SafeAreaView>
@@ -182,101 +146,92 @@ export default function GeoGateScreen() {
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
   },
   content: {
     flexGrow: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
     paddingVertical: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   iconContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginBottom: 48,
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '700' as const,
-    color: colors.text,
-    marginBottom: 12,
+    color: '#111827',
+    marginBottom: 16,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '400' as const,
-    color: colors.textSecondary,
+    color: '#6B7280',
     textAlign: 'center',
     marginBottom: 40,
-    lineHeight: 24,
-    paddingHorizontal: 20,
+    lineHeight: 26,
+    paddingHorizontal: 8,
   },
   loadingContainer: {
     alignItems: 'center',
     gap: 16,
+    marginBottom: 40,
   },
   loadingText: {
     fontSize: 16,
-    color: colors.textSecondary,
+    color: '#6B7280',
   },
   stateContainer: {
     width: '100%',
-    gap: 12,
-  },
-  stateTitle: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
+    marginBottom: 16,
   },
   stateButton: {
-    height: 56,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
+    height: 54,
+    backgroundColor: '#1E4D3A',
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.border,
+    shadowColor: '#1E4D3A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   stateButtonText: {
     fontSize: 18,
-    fontWeight: '600' as const,
-    color: colors.text,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
   },
   button: {
     width: '100%',
-    height: 56,
-    backgroundColor: colors.primary,
-    borderRadius: 12,
+    height: 54,
+    backgroundColor: '#1E4D3A',
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#1E4D3A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   buttonText: {
     fontSize: 18,
-    fontWeight: '600' as const,
-    color: colors.surface,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
   },
   linkButton: {
-    marginTop: 16,
     paddingVertical: 12,
   },
   linkText: {
     fontSize: 16,
     fontWeight: '500' as const,
-    color: colors.primary,
+    color: '#1E4D3A',
   },
 });

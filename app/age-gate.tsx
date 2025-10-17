@@ -1,21 +1,18 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
-import { Leaf, CheckSquare, Square } from 'lucide-react-native';
+import { Leaf, X } from 'lucide-react-native';
+import { WebView } from 'react-native-webview';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AgeGateScreen() {
   const router = useRouter();
-  const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalUrl, setModalUrl] = useState('');
 
   const handleConfirm = async () => {
-    if (!agreedToTerms) {
-      Alert.alert('Agreement Required', 'Please agree to the Terms & State Laws to continue.');
-      return;
-    }
-
     const existing = await StorageService.getOnboardingState();
     await StorageService.saveOnboardingState({
       ageVerified: true,
@@ -25,16 +22,13 @@ export default function AgeGateScreen() {
       completedOnboarding: false,
     });
 
-    console.log('Age verified, navigating to geo-gate');
+    console.log('[AGE] confirmed');
     router.replace('/geo-gate');
   };
 
-  const handleExit = () => {
-    Alert.alert(
-      'Exit App',
-      'You must be 21+ to use this app.',
-      [{ text: 'OK' }]
-    );
+  const openLegalLink = (url: string) => {
+    setModalUrl(url);
+    setModalVisible(true);
   };
 
   return (
@@ -42,54 +36,59 @@ export default function AgeGateScreen() {
       <SafeAreaView style={styles.container}>
         <View style={styles.content}>
           <View style={styles.logoContainer}>
-            <Leaf size={56} color={colors.primary} strokeWidth={2.5} />
+            <Leaf size={64} color="#1E4D3A" strokeWidth={2.5} />
           </View>
 
-          <Text style={styles.title}>Age Verification</Text>
+          <Text style={styles.title}>Are you 21 or older?</Text>
           <Text style={styles.subtitle}>
-            Are you 21+ or a valid medical patient?
+            Please confirm you are 21+ years old or a valid medical marijuana patient.
+          </Text>
+
+          <Text style={styles.legalText}>
+            By confirming, you agree to our{' '}
+            <Text style={styles.link} onPress={() => openLegalLink('https://greenhauscc.com/privacy')}>
+              Privacy Policy
+            </Text>
+            {' '}and{' '}
+            <Text style={styles.link} onPress={() => openLegalLink('https://greenhauscc.com/terms')}>
+              Terms of Service
+            </Text>
+            .
           </Text>
 
           <TouchableOpacity 
-            style={styles.checkboxContainer}
-            onPress={() => setAgreedToTerms(!agreedToTerms)}
-            activeOpacity={0.7}
+            style={styles.button}
+            onPress={handleConfirm}
+            activeOpacity={0.85}
           >
-            {agreedToTerms ? (
-              <CheckSquare size={24} color={colors.primary} />
-            ) : (
-              <Square size={24} color={colors.textSecondary} />
-            )}
-            <Text style={styles.checkboxLabel}>
-              I agree to the Terms & State Laws
-            </Text>
+            <Text style={styles.buttonText}>Continue</Text>
           </TouchableOpacity>
-
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={[styles.button, styles.buttonPrimary]}
-              onPress={handleConfirm}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonTextPrimary}>I Confirm</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={[styles.button, styles.buttonSecondary]}
-              onPress={handleExit}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.buttonTextSecondary}>Exit</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.disclaimer}>
-            Loyalty, menu browsing, and order-ahead for pickup.
-            {'\n'}
-            By continuing, you confirm compliance with local laws.
-          </Text>
         </View>
       </SafeAreaView>
+
+      <Modal
+        visible={modalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <SafeAreaView style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity
+              onPress={() => setModalVisible(false)}
+              style={styles.modalCloseButton}
+              activeOpacity={0.7}
+            >
+              <X size={24} color={colors.text} />
+              <Text style={styles.modalCloseText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <WebView
+            source={{ uri: modalUrl }}
+            style={styles.webview}
+          />
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -97,90 +96,94 @@ export default function AgeGateScreen() {
 const styles = StyleSheet.create({
   wrapper: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: 60,
+    paddingBottom: 40,
   },
   logoContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: 24,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    marginBottom: 48,
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '700' as const,
-    color: colors.text,
-    marginBottom: 12,
+    color: '#111827',
+    marginBottom: 16,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '400' as const,
-    color: colors.textSecondary,
+    color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 40,
-    lineHeight: 26,
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 32,
-    gap: 12,
+    lineHeight: 26,
+    paddingHorizontal: 8,
   },
-  checkboxLabel: {
-    fontSize: 16,
-    color: colors.text,
-    fontWeight: '500' as const,
-  },
-  buttonContainer: {
-    width: '100%',
-    gap: 12,
-  },
-  button: {
-    height: 56,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  buttonPrimary: {
-    backgroundColor: colors.primary,
-  },
-  buttonSecondary: {
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  buttonTextPrimary: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: colors.surface,
-  },
-  buttonTextSecondary: {
-    fontSize: 18,
-    fontWeight: '600' as const,
-    color: colors.text,
-  },
-  disclaimer: {
-    marginTop: 32,
+  legalText: {
     fontSize: 13,
-    color: colors.textLight,
+    fontWeight: '400' as const,
+    color: '#9CA3AF',
     textAlign: 'center',
     lineHeight: 20,
+    marginBottom: 40,
+    paddingHorizontal: 16,
+  },
+  link: {
+    color: '#1E4D3A',
+    fontWeight: '500' as const,
+    textDecorationLine: 'underline' as const,
+  },
+  button: {
+    width: '100%',
+    height: 54,
+    backgroundColor: '#1E4D3A',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#1E4D3A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  buttonText: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: '#FFFFFF',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+    alignItems: 'flex-end',
+  },
+  modalCloseButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  modalCloseText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: colors.text,
+  },
+  webview: {
+    flex: 1,
   },
 });
