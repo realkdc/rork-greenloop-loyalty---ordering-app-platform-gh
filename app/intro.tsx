@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Animated, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
 
 export default function IntroScreen() {
@@ -44,17 +43,13 @@ export default function IntroScreen() {
     <View style={styles.container}>
       <Animated.View style={[styles.logoContainer, { opacity, transform: [{ scale }] }]}>
         <Image
-          source={require('@/assets/greenhaus/greenhaus-logo.png')}
+          source={{ uri: 'https://toolkit.rork.com/api/static/greenhaus-logo.png' }}
           style={styles.logo}
           resizeMode="contain"
         />
       </Animated.View>
 
       <Text style={styles.tagline}>Elevating the GreenHaus experience</Text>
-
-      <TouchableOpacity style={styles.skipButton} onPress={handleContinue} activeOpacity={0.85}>
-        <Text style={styles.skipLabel}>Continue</Text>
-      </TouchableOpacity>
     </View>
   );
 }
@@ -84,17 +79,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.4,
   },
-  skipButton: {
-    position: 'absolute',
-    bottom: 64,
-    backgroundColor: colors.primary,
-    paddingHorizontal: 32,
-    paddingVertical: 14,
-    borderRadius: 999,
-  },
-  skipLabel: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+
 });
