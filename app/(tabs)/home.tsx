@@ -17,6 +17,8 @@ interface PromoRecord {
   body?: string;
   deepLinkUrl?: string;
   storeId?: string;
+  startsAt?: Date;
+  endsAt?: Date;
   createdAt?: Date;
 }
 
@@ -88,45 +90,43 @@ export default function HomeTab() {
       constraints: {
         status: 'live',
         startsAt: now.toISOString(),
-        endsAt: now.toISOString(),
-        orderBy: 'createdAt desc',
+        orderBy: 'startsAt desc',
         limit: 5,
       },
     });
 
     try {
       setLoadingPromos(true);
-      setIndexWarning(false);
       const promotionsRef = collection(firestore, 'promotions');
       const q = query(
         promotionsRef,
         where('status', '==', 'live'),
         where('storeId', '==', activeStoreId),
         where('startsAt', '<=', Timestamp.fromDate(now)),
-        where('endsAt', '>=', Timestamp.fromDate(now)),
-        orderBy('createdAt', 'desc'),
+        orderBy('startsAt', 'desc'),
         limit(5)
       );
 
       const snapshot = await getDocs(q);
-      const items = snapshot.docs.map((doc) => {
-        const data: any = doc.data();
-        return {
-          id: doc.id,
-          title: data.title ?? '',
-          body: data.body ?? '',
-          deepLinkUrl: data.deepLinkUrl ?? data.url ?? undefined,
-          storeId: data.storeId ?? undefined,
-          createdAt: data.createdAt?.toDate?.() ?? undefined,
-        } satisfies PromoRecord;
-      });
+      const items = snapshot.docs
+        .map((doc) => {
+          const data: any = doc.data();
+          return {
+            id: doc.id,
+            title: data.title ?? '',
+            body: data.body ?? '',
+            deepLinkUrl: data.deepLinkUrl ?? data.url ?? undefined,
+            storeId: data.storeId ?? undefined,
+            startsAt: data.startsAt?.toDate?.() ?? undefined,
+            endsAt: data.endsAt?.toDate?.() ?? undefined,
+            createdAt: data.createdAt?.toDate?.() ?? undefined,
+          } satisfies PromoRecord;
+        })
+        .filter((promo) => !promo.endsAt || promo.endsAt.getTime() >= now.getTime());
 
       setPromos(items);
     } catch (error: any) {
       console.warn('[PromoDebug] Firestore query failed', error);
-      if (error?.code === 'failed-precondition') {
-        setIndexWarning(true);
-      }
       setPromos([]);
     } finally {
       setLoadingPromos(false);
@@ -250,11 +250,6 @@ const styles = StyleSheet.create({
   alertDanger: {
     backgroundColor: '#FEE2E2',
     borderColor: '#FCA5A5',
-    borderWidth: 1,
-  },
-  alertWarning: {
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FACC15',
     borderWidth: 1,
   },
   alertTitle: {

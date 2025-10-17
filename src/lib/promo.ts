@@ -7,8 +7,8 @@ import {
   query,
   where,
   DocumentData,
+  Timestamp,
 } from 'firebase/firestore';
-import type { Timestamp } from 'firebase/firestore';
 import { app } from '@/app/lib/firebase';
 
 const firestore = getFirestore(app);
@@ -62,17 +62,12 @@ export async function getLivePromos(now = Date.now()): Promise<PromoRecord[]> {
   );
 
   const snapshot = await getDocs(baseQuery);
-  const promos = snapshot.docs.map((doc) => normalize(doc.data(), doc.id));
-
-  const livePromos = promos
+  return snapshot.docs
+    .map((doc) => normalize(doc.data(), doc.id))
     .filter((promo) => {
       if (!promo.startsAt) return false;
       if (promo.startsAt.getTime() > now) return false;
-      if (promo.endsAt && promo.endsAt.getTime() <= now) return false;
+      if (promo.endsAt && promo.endsAt.getTime() < now) return false;
       return true;
-    })
-    .sort((a, b) => (b.startsAt?.getTime() ?? 0) - (a.startsAt?.getTime() ?? 0))
-    .slice(0, 3);
-
-  return livePromos;
+    });
 }
