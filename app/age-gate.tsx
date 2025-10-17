@@ -37,7 +37,7 @@ export default function AgeGateScreen() {
         <View style={styles.content}>
           <View style={styles.logoContainer}>
             <Image
-              source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/greenhaus-logo.png' }}
+              source={{ uri: 'https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/greenhaus-logo-white-bg.png' }}
               style={styles.logo}
               resizeMode="contain"
             />
@@ -119,8 +119,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logo: {
-    width: 240,
-    height: 120,
+    width: 320,
+    height: 160,
   },
   title: {
     fontSize: 32,
