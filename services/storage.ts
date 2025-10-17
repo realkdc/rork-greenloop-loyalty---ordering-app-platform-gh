@@ -8,6 +8,7 @@ const KEYS = {
   TRANSACTIONS: '@greenloop_transactions',
   REDEEMED_CAMPAIGNS: '@greenloop_redeemed_campaigns',
   ONBOARDING: '@greenloop_onboarding',
+  INTRO_SEEN: '@greenloop_intro_seen',
 };
 
 export const StorageService = {
@@ -132,6 +133,24 @@ export const StorageService = {
       await AsyncStorage.multiRemove(Object.values(KEYS));
     } catch (error) {
       console.error('Failed to clear storage:', error);
+    }
+  },
+
+  async getIntroSeen(): Promise<boolean> {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.INTRO_SEEN);
+      return value === 'true';
+    } catch (error) {
+      console.error('Failed to get intro seen flag:', error);
+      return false;
+    }
+  },
+
+  async setIntroSeen(seen: boolean): Promise<void> {
+    try {
+      await AsyncStorage.setItem(KEYS.INTRO_SEEN, seen ? 'true' : 'false');
+    } catch (error) {
+      console.error('Failed to set intro seen flag:', error);
     }
   },
 

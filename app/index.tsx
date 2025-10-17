@@ -13,6 +13,12 @@ export default function Index() {
 
     const checkOnboarding = async () => {
       try {
+        const introSeen = await StorageService.getIntroSeen();
+        if (!introSeen) {
+          router.replace('/intro');
+          return;
+        }
+
         const onboarding = await StorageService.getOnboardingState();
         console.log('Onboarding state:', onboarding);
         
