@@ -10,6 +10,11 @@ import { useApp } from '@/contexts/AppContext';
 
 type ScreenState = 'location' | 'restricted' | 'stores';
 
+type DetectedLocation = {
+  state: string;
+  city?: string;
+};
+
 export default function GeoGateScreen() {
   const router = useRouter();
   const { setSelectedStoreId, setLastKnownState, setOnboardingCompleted } = useApp();
@@ -18,6 +23,7 @@ export default function GeoGateScreen() {
   const [screenState, setScreenState] = useState<ScreenState>('location');
   const [eligibleStores, setEligibleStores] = useState<StoreInfo[]>([]);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
 
   const handleStoreSelected = useCallback(async (store: StoreInfo) => {
     setLoading(true);
@@ -45,13 +51,10 @@ export default function GeoGateScreen() {
     const stores = STORES.filter(s => s.state === state);
     setEligibleStores(stores);
     
-    if (stores.length === 1) {
-      await handleStoreSelected(stores[0]);
-    } else {
-      setLoading(false);
-      setScreenState('stores');
-    }
-  }, [setLastKnownState, handleStoreSelected]);
+    // Always show store picker screen, even if there's only one store
+    setLoading(false);
+    setScreenState('stores');
+  }, [setLastKnownState]);
 
   const detectAndProcessLocation = useCallback(async (requestPermission: boolean) => {
     if ((Platform.OS as string) === 'web') {
@@ -120,7 +123,14 @@ export default function GeoGateScreen() {
       }
       
       const detectedState = geocode.region || '';
-      console.log('[GEO] Detected state:', detectedState);
+      const detectedCity = geocode.city || '';
+      console.log('[GEO] Detected location:', detectedCity, detectedState);
+      
+      // Store the detected location for display
+      setDetectedLocation({
+        state: detectedState,
+        city: detectedCity,
+      });
       
       const normalized = /tennessee/i.test(detectedState) ? 'TN' : detectedState;
       
@@ -195,6 +205,10 @@ export default function GeoGateScreen() {
   };
 
   if (screenState === 'restricted') {
+    const locationText = detectedLocation
+      ? `${detectedLocation.city ? detectedLocation.city + ', ' : ''}${detectedLocation.state}`
+      : 'your current location';
+
     return (
       <View style={styles.wrapper}>
         <SafeAreaView style={styles.container}>
@@ -203,17 +217,26 @@ export default function GeoGateScreen() {
               <AlertTriangle size={56} color="#DC2626" strokeWidth={2.5} />
             </View>
 
-            <Text style={styles.title}>Geo-Restriction</Text>
+            <Text style={styles.title}>Sorry, {locationText}</Text>
             <Text style={styles.subtitle}>
-              Due to app store policy, this app can only be used in states where our stores are located. Share your location to continue.
+              Due to app store policy, this app can only be used in states where our stores are located.
+            </Text>
+            <Text style={[styles.subtitle, { marginTop: 16 }]}>
+              We currently operate in <Text style={styles.highlightText}>Tennessee</Text>.
+            </Text>
+            <Text style={[styles.subtitle, { marginTop: 16, fontSize: 15 }]}>
+              If you think this is a mistake, you can manually select your state.
             </Text>
 
             <TouchableOpacity
               style={styles.button}
-              onPress={() => setScreenState('location')}
+              onPress={() => {
+                setScreenState('location');
+                setShowManualSelector(true);
+              }}
               activeOpacity={0.85}
             >
-              <Text style={styles.buttonText}>Back</Text>
+              <Text style={styles.buttonText}>Select State Manually</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>
@@ -462,5 +485,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#1E4D3A',
     fontWeight: '600' as const,
+  },
+  highlightText: {
+    fontWeight: '700' as const,
+    color: '#1E4D3A',
   },
 });
