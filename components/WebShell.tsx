@@ -125,7 +125,8 @@ const CART_COUNTER_SCRIPT = `
     persist(n);
 
     if (!window.ReactNativeWebView){
-      console.log('[CartCounter] ⚠️ ReactNativeWebView not available!');
+      console.log('[CartCounter] ⚠️ ReactNativeWebView not available, retrying...');
+      setTimeout(() => post(n, fromAPI), 200);
       return;
     }
 
