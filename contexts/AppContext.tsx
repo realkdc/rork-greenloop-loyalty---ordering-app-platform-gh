@@ -1,5 +1,6 @@
 import createContextHook from '@nkzw/create-context-hook';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StorageService } from '@/services/storage';
 import { TrackingService } from '@/services/tracking';
 import { CampaignService } from '@/services/campaigns';
@@ -37,10 +38,44 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [shopUrl, setShopUrl] = useState<string>('https://greenhauscc.com/products');
+  const CART_COUNT_KEY = '@greenloop_cart_count';
   const [cartCount, setCartCountInternal] = useState<number>(0);
   const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean>(false);
   const [selectedStoreId, setSelectedStoreIdState] = useState<string | null>(null);
   const [lastKnownState, setLastKnownStateState] = useState<string | null>(null);
+
+  const hydrationRef = useRef(false);
+
+  const persistCartCount = useCallback(async (value: number) => {
+    try {
+      await AsyncStorage.setItem(CART_COUNT_KEY, String(value));
+      console.log('[AppContext] 💾 Persisted cart count:', value);
+    } catch (error) {
+      console.log('[AppContext] ⚠️ Failed to persist cart count:', error);
+    }
+  }, []);
+
+  const hydrateCartCount = useCallback(async () => {
+    if (hydrationRef.current) return;
+    hydrationRef.current = true;
+    try {
+      const stored = await AsyncStorage.getItem(CART_COUNT_KEY);
+      if (stored) {
+        const parsed = parseInt(stored, 10);
+        if (!Number.isNaN(parsed) && parsed >= 0) {
+          const normalized = Math.min(999, parsed);
+          console.log('[AppContext] 🧰 Async hydrated cart count:', normalized);
+          setCartCountInternal(normalized);
+        }
+      }
+    } catch (error) {
+      console.log('[AppContext] ⚠️ Async hydrate failed:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    hydrateCartCount();
+  }, [hydrateCartCount]);
 
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
@@ -49,13 +84,19 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       return;
     }
     const normalized = Math.max(0, Math.min(999, Math.floor(count)));
-    console.log('[AppContext] ✅ Setting cart count to:', normalized, '(previous was:', cartCount, ')');
-    setCartCountInternal(normalized);
-    
-    setTimeout(() => {
-      console.log('[AppContext] 🔍 Verification - internal state is now:', normalized);
-    }, 100);
-  }, [cartCount]);
+    setCartCountInternal(prev => {
+      if (prev === normalized) {
+        console.log('[AppContext] ⏭️ Cart count unchanged, skipping state update');
+        return prev;
+      }
+      console.log('[AppContext] ✅ Updating cart count from', prev, 'to', normalized);
+      persistCartCount(normalized);
+      setTimeout(() => {
+        console.log('[AppContext] 🔍 Verification - internal state is now:', normalized);
+      }, 100);
+      return normalized;
+    });
+  }, [persistCartCount]);
 
   const refreshTransactions = useCallback(async () => {
     if (!user) return;
