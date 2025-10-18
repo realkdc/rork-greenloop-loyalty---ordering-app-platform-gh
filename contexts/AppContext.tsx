@@ -44,11 +44,18 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
 
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
-    if (count === null || count === undefined) return;
+    if (count === null || count === undefined) {
+      console.log('[AppContext] ⏭️ Skipping null/undefined count');
+      return;
+    }
     const normalized = Math.max(0, Math.min(999, Math.floor(count)));
-    console.log('[AppContext] ✅ Setting cart count to:', normalized);
+    console.log('[AppContext] ✅ Setting cart count to:', normalized, '(previous was:', cartCount, ')');
     setCartCountInternal(normalized);
-  }, []);
+    
+    setTimeout(() => {
+      console.log('[AppContext] 🔍 Verification - internal state is now:', normalized);
+    }, 100);
+  }, [cartCount]);
 
   const refreshTransactions = useCallback(async () => {
     if (!user) return;

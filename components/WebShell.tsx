@@ -34,11 +34,17 @@ true;
 
 const CART_COUNTER_SCRIPT = `
 (function(){
-  if (window.__ghCartCounter?.installed) return;
+  console.log('[CartCounter] 🚀 Starting cart counter script');
+  if (window.__ghCartCounter?.installed) {
+    console.log('[CartCounter] ⏭️ Already installed, skipping');
+    return;
+  }
   let persisted = -1;
   try { persisted = parseInt(sessionStorage.getItem('__ghLastCount')||''); } catch {}
   window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false, synced:false };
   window.__ghCC = window.__ghCartCounter;
+  console.log('[CartCounter] ✅ Initialized with persisted value:', window.__ghCartCounter.lastValue);
+  
   function isCartPage(){ return /\\/cart(\\b|\\/|$)/i.test(location.pathname) || /#checkout/i.test(location.hash); }
   function persist(n){ try{ sessionStorage.setItem('__ghLastCount', String(n)); }catch{} }
   function parseSafe(n){ const v=parseInt(n,10); return Number.isFinite(v)&&v>=0?v:null; }
@@ -60,50 +66,99 @@ const CART_COUNTER_SCRIPT = `
       if (!el) continue;
       const raw = el.getAttribute('data-count')||el.getAttribute('data-cart-count')||(el.textContent||'').trim();
       const n = parseSafe(raw);
-      if (n!==null) return n;
+      if (n!==null) {
+        console.log('[CartCounter] 🎯 Found cart count via DOM selector:', s, '= value:', n);
+        return n;
+      }
     }
     if (isCartPage()){
       const items = document.querySelectorAll('.ec-cart__products li, [data-cart-item], .cart__item, .ec-cart-item');
-      if (items.length>0) return items.length;
+      if (items.length>0) {
+        console.log('[CartCounter] 🎯 Found cart items on cart page:', items.length);
+        return items.length;
+      }
     }
+    console.log('[CartCounter] ❌ No cart count found via DOM probe');
     return null;
   }
   function post(n, fromAPI){
     const state = window.__ghCartCounter;
-    if (!state.active) return;
-    if (n===null || n===undefined){ if(!state.ready) return; n=state.lastValue; }
-    if (n===0 && state.lastValue>0 && isCartPage() && !state.confirmedEmpty) return;
+    console.log('[CartCounter] 📤 post() called - value:', n, 'fromAPI:', fromAPI, 'active:', state.active, 'synced:', state.synced, 'lastValue:', state.lastValue);
+    
+    if (!state.active) {
+      console.log('[CartCounter] ⚠️ Not active, skipping');
+      return;
+    }
+    if (n===null || n===undefined){ 
+      if(!state.ready) {
+        console.log('[CartCounter] ⚠️ Not ready and no value, skipping');
+        return;
+      }
+      n=state.lastValue;
+      console.log('[CartCounter] Using last known value:', n);
+    }
+    if (n===0 && state.lastValue>0 && isCartPage() && !state.confirmedEmpty) {
+      console.log('[CartCounter] ⚠️ On cart page with 0 items but not confirmed, skipping');
+      return;
+    }
     if (fromAPI){ state.ready=true; state.confirmedEmpty = n===0; }
     if (n>0){ state.ready=true; state.confirmedEmpty=false; }
     const prev = state.lastValue;
     const shouldSkip = state.synced && n===prev;
     state.lastValue = n;
-    if (shouldSkip) return;
+    if (shouldSkip) {
+      console.log('[CartCounter] ⏭️ Value unchanged and already synced, skipping');
+      return;
+    }
     persist(n);
     if (window.ReactNativeWebView){
+      console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
       window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
       state.synced = true;
+    } else {
+      console.log('[CartCounter] ⚠️ ReactNativeWebView not available!');
     }
   }
   function tryAPI(){
+    console.log('[CartCounter] 🔍 Trying Ecwid API, Ecwid available:', !!window.Ecwid);
     if (!window.Ecwid) return false;
     try{
       if (window.Ecwid.Cart?.get){
-        window.Ecwid.Cart.get(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c, true); });
+        console.log('[CartCounter] ✅ Using Ecwid.Cart.get');
+        window.Ecwid.Cart.get(function(cart){ 
+          const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
+          console.log('[CartCounter] 🛍️ Ecwid.Cart.get returned:', c);
+          post(c, true); 
+        });
         return true;
       }
-    }catch{}
+    }catch(e){
+      console.log('[CartCounter] ❌ Error with Ecwid.Cart.get:', e);
+    }
     try{
       if (window.Ecwid.getCart){
-        window.Ecwid.getCart(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c, true); });
+        console.log('[CartCounter] ✅ Using Ecwid.getCart');
+        window.Ecwid.getCart(function(cart){ 
+          const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
+          console.log('[CartCounter] 🛍️ Ecwid.getCart returned:', c);
+          post(c, true); 
+        });
         return true;
       }
-    }catch{}
+    }catch(e){
+      console.log('[CartCounter] ❌ Error with Ecwid.getCart:', e);
+    }
     return false;
   }
   function check(){
+    console.log('[CartCounter] 🔎 check() triggered at', new Date().toLocaleTimeString());
     const viaAPI = tryAPI();
-    if (!viaAPI){ const d = domProbe(); if (d!==null) post(d, false); }
+    if (!viaAPI){ 
+      console.log('[CartCounter] No API available, trying DOM probe');
+      const d = domProbe(); 
+      if (d!==null) post(d, false); 
+      else console.log('[CartCounter] ❌ No count found via DOM');
+    }
   }
   let t; function debounced(){ clearTimeout(t); t=setTimeout(check,300); }
   const mo = new MutationObserver(debounced);
@@ -111,11 +166,34 @@ const CART_COUNTER_SCRIPT = `
   window.addEventListener('load', debounced);
   window.addEventListener('pageshow', debounced);
   function onMsg(event){
-    try{ const m = JSON.parse(event.data); if (m.type==='PING'){ setTimeout(check,100); } if (m.type==='TAB_ACTIVE'){ window.__ghCartCounter.active=!!m.value; if(m.value) setTimeout(check,100); } }catch{}
+    try{ 
+      const m = JSON.parse(event.data); 
+      if (m.type==='PING'){ 
+        console.log('[CartCounter] 🏓 Received PING, running check');
+        setTimeout(check,100); 
+      } 
+      if (m.type==='TAB_ACTIVE'){ 
+        console.log('[CartCounter] 🎯 Tab active changed to:', m.value);
+        window.__ghCartCounter.active=!!m.value; 
+        if(m.value) setTimeout(check,100); 
+      } 
+    }catch{}
   }
   window.addEventListener('message', onMsg);
   document.addEventListener('message', onMsg);
-  if (window.Ecwid?.OnCartChanged){ try{ window.Ecwid.OnCartChanged.add(function(cart){ const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; post(c,true); }); }catch{} }
+  if (window.Ecwid?.OnCartChanged){ 
+    try{ 
+      console.log('[CartCounter] ✅ Registering Ecwid.OnCartChanged listener');
+      window.Ecwid.OnCartChanged.add(function(cart){ 
+        const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
+        console.log('[CartCounter] 🔔 OnCartChanged fired with count:', c);
+        post(c,true); 
+      }); 
+    }catch(e){
+      console.log('[CartCounter] ❌ Error registering OnCartChanged:', e);
+    }
+  }
+  console.log('[CartCounter] ⏰ Scheduling periodic checks');
   [400,1000,2000,3500,6000,9000].forEach(d=>setTimeout(check,d));
 })();
 true;
@@ -258,8 +336,9 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
         if (msg.type === 'CART_COUNT' || msg.type === 'CART') {
           const count = Number(msg.value ?? msg.count ?? 0);
           const normalized = isFinite(count) ? Math.max(0, Math.min(999, count)) : 0;
-          console.log(`[WebShell:${tabKey}] 📊 Cart count received:`, normalized, 'raw:', msg);
+          console.log(`[WebShell:${tabKey}] 📊 CART COUNT UPDATE - value:`, msg.value, 'count:', msg.count, 'normalized:', normalized, 'calling setCartCount now!');
           setCartCount(normalized);
+          console.log(`[WebShell:${tabKey}] ✅ setCartCount called with:`, normalized);
         } else if (msg.type === 'NAVIGATE_TAB') {
           if (msg.tab && msg.tab !== tabKey) {
             console.log(`[WebShell:${tabKey}] 🧭 Navigating to tab:`, msg.tab);
@@ -302,6 +381,14 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           console.log(`[WebShell:${tabKey}] 📤 Sending PING after load`);
           actualRef.postMessage(JSON.stringify({ type: 'PING' }));
         }, 500);
+        setTimeout(() => {
+          console.log(`[WebShell:${tabKey}] 📤 Sending second PING after 2s`);
+          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
+        }, 2000);
+        setTimeout(() => {
+          console.log(`[WebShell:${tabKey}] 📤 Sending third PING after 5s`);
+          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
+        }, 5000);
       }
     }, [ref, tabKey]);
 
@@ -335,7 +422,6 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           console.log(`[WebShell:${tabKey}] 📤 Sending TAB_ACTIVE=true`);
           actualRef.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true }));
           
-          // Also send a PING to trigger immediate cart count check
           setTimeout(() => {
             console.log(`[WebShell:${tabKey}] 📤 Sending PING for cart check`);
             actualRef.postMessage(JSON.stringify({ type: 'PING' }));
@@ -396,13 +482,11 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             ${CART_COUNTER_SCRIPT}
             ${INJECTED_JS}
             
-            // Debug script to help troubleshoot
             setTimeout(() => {
               console.log('🔍 WEBVIEW DEBUG - Script injection completed');
               console.log('🔍 Window.ReactNativeWebView available:', !!window.ReactNativeWebView);
               console.log('🔍 Cart script installed:', !!window.__ghCartCounter);
               
-              // Send a test message
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
                   type: 'DEBUG_TEST',
