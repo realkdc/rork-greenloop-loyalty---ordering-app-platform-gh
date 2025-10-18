@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function Index() {
   const router = useRouter();
-  const { isLoading } = useAuth();
+  const auth = useAuth();
+  const { isLoading } = auth || { isLoading: true };
 
   useEffect(() => {
     if (isLoading) return;

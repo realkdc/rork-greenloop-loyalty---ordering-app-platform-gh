@@ -30,6 +30,14 @@ const TAB_LABELS: Record<string, string> = {
   profile: "Account",
 };
 
+const TAB_URLS: Record<string, string> = {
+  home: Store.HOME,
+  search: Store.SEARCH,
+  cart: "https://greenhauscc.com/products/cart",
+  orders: Store.ORDERS,
+  profile: Store.PROFILE,
+};
+
 export default function Layout() {
   const { cartCount } = useApp();
 
@@ -118,7 +126,30 @@ export default function Layout() {
                       console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
                       try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
                       try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
-                      try { current.reload(); } catch {}
+                      const targetUrl = TAB_URLS[name];
+                      if (targetUrl) {
+                        const navigationScript = `
+                          (function(){
+                            try {
+                              const desired = '${targetUrl}';
+                              const normalizedDesired = desired.replace(/\\/$/, '');
+                              const normalizedCurrent = window.location.href.replace(/\\/$/, '');
+                              if (normalizedCurrent !== normalizedDesired) {
+                                window.location.href = desired;
+                              } else {
+                                window.scrollTo(0, 0);
+                                window.dispatchEvent(new Event('focus'));
+                              }
+                            } catch (navError) {
+                              console.error('[WebView] Navigation error for ${name}:', navError);
+                            }
+                            return true;
+                          })();
+                        `;
+                        try { current.injectJavaScript(navigationScript); } catch {}
+                      } else {
+                        try { current.reload(); } catch {}
+                      }
                     }
                   } else {
                     console.log(`[Tabs] ⚠️ No webviewRef for ${name}`);

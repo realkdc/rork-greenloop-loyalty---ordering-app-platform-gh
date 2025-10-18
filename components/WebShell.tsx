@@ -81,43 +81,53 @@ const CART_COUNTER_SCRIPT = `
     console.log('[CartCounter] ❌ No cart count found via DOM probe');
     return null;
   }
-  function post(n, fromAPI){
+  function post(rawValue, fromAPI){
     const state = window.__ghCartCounter;
-    console.log('[CartCounter] 📤 post() called - value:', n, 'fromAPI:', fromAPI, 'active:', state.active, 'synced:', state.synced, 'lastValue:', state.lastValue);
-    
-    if (!state.active) {
-      console.log('[CartCounter] ⚠️ Not active, skipping');
-      return;
-    }
-    if (n===null || n===undefined){ 
-      if(!state.ready) {
+    console.log('[CartCounter] 📤 post() called - value:', rawValue, 'fromAPI:', fromAPI, 'active:', state.active, 'synced:', state.synced, 'lastValue:', state.lastValue);
+
+    let n = rawValue;
+    if (n === null || n === undefined){
+      if (!state.ready){
         console.log('[CartCounter] ⚠️ Not ready and no value, skipping');
         return;
       }
-      n=state.lastValue;
+      n = state.lastValue;
       console.log('[CartCounter] Using last known value:', n);
     }
-    if (n===0 && state.lastValue>0 && isCartPage() && !state.confirmedEmpty) {
+
+    const prev = state.lastValue;
+    if (n === 0 && prev > 0 && isCartPage() && !state.confirmedEmpty && !fromAPI){
       console.log('[CartCounter] ⚠️ On cart page with 0 items but not confirmed, skipping');
       return;
     }
-    if (fromAPI){ state.ready=true; state.confirmedEmpty = n===0; }
-    if (n>0){ state.ready=true; state.confirmedEmpty=false; }
-    const prev = state.lastValue;
-    const shouldSkip = state.synced && n===prev;
+
+    if (fromAPI){
+      state.ready = true;
+      state.confirmedEmpty = n === 0;
+    }
+    if (n > 0){
+      state.ready = true;
+      state.confirmedEmpty = false;
+    }
+
     state.lastValue = n;
-    if (shouldSkip) {
+
+    const unchanged = state.synced && n === prev;
+    if (unchanged && !fromAPI){
       console.log('[CartCounter] ⏭️ Value unchanged and already synced, skipping');
       return;
     }
+
     persist(n);
-    if (window.ReactNativeWebView){
-      console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
-      state.synced = true;
-    } else {
+
+    if (!window.ReactNativeWebView){
       console.log('[CartCounter] ⚠️ ReactNativeWebView not available!');
+      return;
     }
+
+    console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
+    state.synced = true;
   }
   function tryAPI(){
     console.log('[CartCounter] 🔍 Trying Ecwid API, Ecwid available:', !!window.Ecwid);
@@ -195,12 +205,41 @@ const CART_COUNTER_SCRIPT = `
   }
   console.log('[CartCounter] ⏰ Scheduling periodic checks');
   [400,1000,2000,3500,6000,9000].forEach(d=>setTimeout(check,d));
+  setInterval(check, 15000);
 })();
 true;
 `;
 
-const INJECTED_JS = `
+const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profile') => `
 (function(){
+  const TAB_KEY = '${tabKey}';
+  let pendingNavTarget = null;
+  let pendingNavTimer = null;
+  function scheduleNavIntent(target){
+    pendingNavTarget = target;
+    if (pendingNavTimer) clearTimeout(pendingNavTimer);
+    pendingNavTimer = setTimeout(()=>{ pendingNavTarget = null; }, 1600);
+  }
+  function consumePending(target){
+    if (!target) return false;
+    if (pendingNavTarget === target){
+      pendingNavTarget = null;
+      if (pendingNavTimer) clearTimeout(pendingNavTimer);
+      pendingNavTimer = null;
+      return true;
+    }
+    return false;
+  }
+  function maybeNavigate(tab, force){
+    if (!tab || tab === TAB_KEY) return;
+    if (!force){
+      if (!consumePending(tab)) return;
+    } else {
+      consumePending(tab);
+    }
+    window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab}));
+  }
+
   let lastBodyText = '';
   const loginObserver = new MutationObserver(function(){
     try{
@@ -228,21 +267,21 @@ const INJECTED_JS = `
     }catch(e){}
   }, 1000);
   
-  function checkNav(){
+  function checkNav(force){
     try{
       const url = window.location.href;
       
       if(/\\/cart/i.test(url) || /\\/products\\/cart/i.test(url)){
-        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab:'cart'}));
+        maybeNavigate('cart', force || pendingNavTarget==='cart');
       }
       else if(/\\/checkout/i.test(url) || url.includes('#checkout')){
-        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab:'cart'}));
+        maybeNavigate('cart', force || pendingNavTarget==='cart');
       }
       else if(/\\/account/i.test(url) || /\\/profile/i.test(url)){
         if(/\\/orders/i.test(url)){
-          window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab:'orders'}));
+          maybeNavigate('orders', force);
         } else {
-          window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab:'profile'}));
+          maybeNavigate('profile', force);
         }
       }
     }catch(e){}
@@ -287,9 +326,9 @@ const INJECTED_JS = `
           /\\/cart|checkout|shopping-bag/i.test(href) ||
           /cart|checkout/i.test(onclick)
         ){
-          setTimeout(checkNav, 200);
-          setTimeout(checkNav, 500);
-          setTimeout(checkNav, 1000);
+          scheduleNavIntent('cart');
+          setTimeout(()=>checkNav(true), 200);
+          setTimeout(()=>checkNav(false), 700);
         }
       }
     }catch(e){}
@@ -301,11 +340,36 @@ const INJECTED_JS = `
       if(form && form.action){
         const action = form.action.toLowerCase();
         if(/cart|checkout/i.test(action)){
-          setTimeout(checkNav, 500);
+          scheduleNavIntent('cart');
+          setTimeout(()=>checkNav(true), 250);
+        }
+        if(/account\\/orders/i.test(action)){
+          scheduleNavIntent('orders');
+          setTimeout(()=>checkNav(true), 250);
+        }
+        if(/account/i.test(action) && !/orders/i.test(action)){
+          scheduleNavIntent('profile');
+          setTimeout(()=>checkNav(true), 250);
         }
       }
     }catch(e){}
   }, true);
+  
+  document.addEventListener('click', function(e){
+    try{
+      const el = (e.target && e.target.closest && e.target.closest('a, button, [role=\"button\"]')) || null;
+      if(!el) return;
+      const href = (el.getAttribute('href') || '').toLowerCase();
+      const text = (el.textContent || '').toLowerCase();
+      if(/account\\/orders/.test(href) || /orders/i.test(text)){
+        scheduleNavIntent('orders');
+      } else if(/account/.test(href) || /profile/.test(href) || /account/i.test(text)){
+        scheduleNavIntent('profile');
+      }
+    }catch(e){}
+  }, true);
+  
+  setInterval(()=>checkNav(false), 2000);
 })();
 true;
 `;
@@ -480,7 +544,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           injectedJavaScriptBeforeContentLoaded={INJECTED_CSS}
           injectedJavaScript={`
             ${CART_COUNTER_SCRIPT}
-            ${INJECTED_JS}
+            ${createInjectedJS(tabKey)}
             
             setTimeout(() => {
               console.log('🔍 WEBVIEW DEBUG - Script injection completed');
