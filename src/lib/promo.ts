@@ -3,7 +3,6 @@ import {
   getDocs,
   getFirestore,
   limit,
-  orderBy,
   query,
   where,
   DocumentData,
@@ -72,7 +71,6 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
     const q = query(
       promotionsRef,
       where('status', '==', 'live'),
-      orderBy('startsAt', 'desc'),
       limit(50)
     );
 
@@ -85,17 +83,23 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
       return [];
     }
 
-    const allDocs = snapshot.docs.map((doc) => {
-      const data = doc.data();
-      console.log(`[PromoService] 📄 Doc ${doc.id}:`, {
-        status: data.status,
-        storeId: data.storeId,
-        title: data.title,
-        startsAt: data.startsAt,
-        endsAt: data.endsAt,
+    const allDocs = snapshot.docs
+      .map((doc) => {
+        const data = doc.data();
+        console.log(`[PromoService] 📄 Doc ${doc.id}:`, {
+          status: data.status,
+          storeId: data.storeId,
+          title: data.title,
+          startsAt: data.startsAt,
+          endsAt: data.endsAt,
+        });
+        return normalize(data, doc.id);
+      })
+      .sort((a, b) => {
+        const aTime = a.startsAt?.getTime() ?? 0;
+        const bTime = b.startsAt?.getTime() ?? 0;
+        return bTime - aTime;
       });
-      return normalize(data, doc.id);
-    });
 
     const promos = allDocs.filter((promo) => {
       if (!promo.storeId) {
