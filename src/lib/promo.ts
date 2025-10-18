@@ -56,45 +56,92 @@ type PromoQueryOptions = {
 };
 
 export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Date.now() }: PromoQueryOptions): Promise<PromoRecord[]> {
-  const nowDate = new Date(now);
-  const promotionsRef = collection(firestore, 'promotions');
+  try {
+    const nowDate = new Date(now);
+    const promotionsRef = collection(firestore, 'promotions');
 
-  const normalizedStoreIds = (storeIds.length ? storeIds : ['cookeville', 'crossville']).map((id) => id.toLowerCase());
-  const storeFilter = normalizedStoreIds.length === 1
-    ? where('storeId', '==', normalizedStoreIds[0])
-    : where('storeId', 'in', normalizedStoreIds.slice(0, 10));
+    const normalizedStoreIds = (storeIds.length ? storeIds : ['cookeville', 'crossville']).map((id) => id.toLowerCase());
+    const storeFilter = normalizedStoreIds.length === 1
+      ? where('storeId', '==', normalizedStoreIds[0])
+      : where('storeId', 'in', normalizedStoreIds.slice(0, 10));
 
-  console.log('[PromoService] Querying Firestore collection', {
-    path: 'promotions',
-    storeIds: normalizedStoreIds,
-    limit: limitCount,
-  });
-
-  const q = query(
-    promotionsRef,
-    where('status', '==', 'live'),
-    storeFilter,
-    orderBy('startsAt', 'desc'),
-    limit(limitCount)
-  );
-
-  const snapshot = await getDocs(q);
-  console.log('[PromoService] Raw docs fetched', snapshot.size);
-
-  const promos = snapshot.docs
-    .map((doc) => normalize(doc.data(), doc.id))
-    .filter((promo) => {
-      const startsAt = promo.startsAt?.getTime();
-      const endsAt = promo.endsAt?.getTime();
-      if (startsAt === undefined) return false;
-      if (startsAt > now) return false;
-      if (endsAt !== undefined && endsAt < now) return false;
-      if (!promo.storeId) return true;
-      return normalizedStoreIds.length === 1
-        ? promo.storeId.toLowerCase().includes(normalizedStoreIds[0])
-        : normalizedStoreIds.some((id) => promo.storeId?.toLowerCase().includes(id));
+    console.log('[PromoService] 🔍 Querying Firestore:', {
+      collection: 'promotions',
+      storeIds: normalizedStoreIds,
+      limit: limitCount,
+      now: nowDate.toISOString(),
     });
 
-  console.log('[PromoService] Active promos after filter', promos.length);
-  return promos;
+    const q = query(
+      promotionsRef,
+      where('status', '==', 'live'),
+      storeFilter,
+      orderBy('startsAt', 'desc'),
+      limit(limitCount)
+    );
+
+    console.log('[PromoService] 📡 Executing query...');
+    const snapshot = await getDocs(q);
+    console.log(`[PromoService] ✅ Raw docs fetched: ${snapshot.size}`);
+
+    if (snapshot.empty) {
+      console.log('[PromoService] ⚠️ No documents found in Firestore');
+      return [];
+    }
+
+    const allDocs = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      console.log(`[PromoService] 📄 Doc ${doc.id}:`, {
+        status: data.status,
+        storeId: data.storeId,
+        title: data.title,
+        startsAt: data.startsAt,
+        endsAt: data.endsAt,
+      });
+      return normalize(data, doc.id);
+    });
+
+    const promos = allDocs.filter((promo) => {
+      const startsAt = promo.startsAt?.getTime();
+      const endsAt = promo.endsAt?.getTime();
+      
+      if (startsAt === undefined) {
+        console.log(`[PromoService] ❌ Filtered ${promo.id}: No startsAt`);
+        return false;
+      }
+      if (startsAt > now) {
+        console.log(`[PromoService] ❌ Filtered ${promo.id}: Not started yet (${new Date(startsAt).toISOString()})`);
+        return false;
+      }
+      if (endsAt !== undefined && endsAt < now) {
+        console.log(`[PromoService] ❌ Filtered ${promo.id}: Expired (${new Date(endsAt).toISOString()})`);
+        return false;
+      }
+      if (!promo.storeId) {
+        console.log(`[PromoService] ✅ Included ${promo.id}: No storeId filter`);
+        return true;
+      }
+      const matches = normalizedStoreIds.length === 1
+        ? promo.storeId.toLowerCase().includes(normalizedStoreIds[0])
+        : normalizedStoreIds.some((id) => promo.storeId?.toLowerCase().includes(id));
+      
+      if (matches) {
+        console.log(`[PromoService] ✅ Included ${promo.id}: Store matches`);
+      } else {
+        console.log(`[PromoService] ❌ Filtered ${promo.id}: Store doesn't match (${promo.storeId})`);
+      }
+      return matches;
+    });
+
+    console.log(`[PromoService] 🎉 Returning ${promos.length} active promos`);
+    return promos;
+  } catch (error: any) {
+    console.error('[PromoService] 💥 Error fetching promos:', error);
+    console.error('[PromoService] Error details:', {
+      message: error?.message,
+      code: error?.code,
+      stack: error?.stack,
+    });
+    throw error;
+  }
 }

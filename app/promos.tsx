@@ -24,7 +24,14 @@ export default function PromosScreen() {
 
   const loadPromos = useCallback(
     async (opts: { refresh?: boolean } = {}) => {
+      console.log('[PromosScreen] 🔄 Loading promos...', {
+        selectedStoreId,
+        storeSlug,
+        refresh: opts.refresh,
+      });
+
       if (!storeSlug) {
+        console.log('[PromosScreen] ⚠️ No store selected');
         setPromos([]);
         setLoading(false);
         setRefreshing(false);
@@ -38,23 +45,31 @@ export default function PromosScreen() {
         } else {
           setRefreshing(true);
         }
+        console.log(`[PromosScreen] 📲 Fetching promos for store: ${storeSlug}`);
         const live = await getLivePromos({ storeIds: [storeSlug] });
+        console.log(`[PromosScreen] 📦 Received ${live.length} promos from service`);
+        
         const filtered = live.filter((promo) => {
           if (!promo.storeId) return false;
           const slug = promo.storeId.toLowerCase();
           return slug.includes(storeSlug);
         });
+        console.log(`[PromosScreen] ✅ Filtered to ${filtered.length} promos`);
         setPromos(filtered);
         setError(null);
       } catch (err: any) {
-        console.error('[PromosScreen] Failed to load promos', err);
+        console.error('[PromosScreen] 💥 Failed to load promos:', err);
+        console.error('[PromosScreen] Error details:', {
+          message: err?.message,
+          code: err?.code,
+        });
         setError('Unable to load promotions right now.');
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [storeSlug]
+    [storeSlug, selectedStoreId]
   );
 
   useEffect(() => {
