@@ -1,0 +1,70 @@
+{
+  "cookeville": [
+    {
+      "id": "cook-early-bird",
+      "title": "Early Bird Flower Deals",
+      "body": "20% off all eighths before 11am, Monday through Friday.",
+      "status": "live",
+      "startsAt": "2025-10-15T10:00:00-05:00",
+      "endsAt": "2025-11-01T21:00:00-05:00"
+    },
+    {
+      "id": "cook-veterans-day",
+      "title": "Veterans Appreciation Week",
+      "body": "Veterans get an extra 15% off storewide. Bring valid ID.",
+      "status": "live",
+      "startsAt": "2025-11-07T09:00:00-05:00",
+      "endsAt": "2025-11-14T21:00:00-05:00"
+    },
+    {
+      "id": "cook-edible-bundle",
+      "title": "Edible Bundle Bonus",
+      "body": "Buy any 3 gummies or chocolates and get 500 loyalty points.",
+      "status": "live",
+      "startsAt": "2025-10-20T09:00:00-05:00",
+      "endsAt": "2025-11-05T21:00:00-05:00"
+    },
+    {
+      "id": "cook-harvest-happy-hour",
+      "title": "Harvest Happy Hour",
+      "body": "Select concentrates 25% off from 4-6pm daily.",
+      "status": "live",
+      "startsAt": "2025-10-18T16:00:00-05:00",
+      "endsAt": "2025-11-02T18:00:00-05:00"
+    }
+  ],
+  "crossville": [
+    {
+      "id": "cross-new-member",
+      "title": "New Member Gift",
+      "body": "Sign up for GreenHaus Rewards and receive a complimentary pre-roll.",
+      "status": "live",
+      "startsAt": "2025-10-10T09:00:00-05:00",
+      "endsAt": "2025-12-31T21:00:00-05:00"
+    },
+    {
+      "id": "cross-weekend-vibes",
+      "title": "Weekend Vibes",
+      "body": "BOGO 50% off on cartridges every Friday and Saturday.",
+      "status": "live",
+      "startsAt": "2025-10-17T09:00:00-05:00",
+      "endsAt": "2025-11-23T21:00:00-05:00"
+    },
+    {
+      "id": "cross-wellness-wednesday",
+      "title": "Wellness Wednesday",
+      "body": "CBD tinctures and topicals 30% off all day.",
+      "status": "live",
+      "startsAt": "2025-10-22T09:00:00-05:00",
+      "endsAt": "2025-11-27T21:00:00-05:00"
+    },
+    {
+      "id": "cross-harvest-fest",
+      "title": "Harvest Fest Giveaway",
+      "body": "Spend $100+ and spin the prize wheel for merch or accessories.",
+      "status": "live",
+      "startsAt": "2025-10-19T10:00:00-05:00",
+      "endsAt": "2025-11-03T20:00:00-05:00"
+    }
+  ]
+}

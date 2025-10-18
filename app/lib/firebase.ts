@@ -1,4 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 import Constants from 'expo-constants';
 
 const expoConfig = Constants.expoConfig?.extra || {};
@@ -30,7 +31,8 @@ if (__DEV__) {
 }
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 console.log('[Firebase] ✅ App initialized successfully');
 
-export { app };
+export { app, db };

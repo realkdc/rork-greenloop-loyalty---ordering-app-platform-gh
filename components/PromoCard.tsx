@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import colors from '@/constants/colors';
-import type { PromoRecord } from '@/src/lib/promo';
+import type { PromoRecord } from '@/src/lib/promos';
 
 interface PromoCardProps {
   promo: PromoRecord;

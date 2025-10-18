@@ -3,9 +3,9 @@ import { View, FlatList, StyleSheet, ActivityIndicator, Text, RefreshControl } f
 import { Stack } from 'expo-router';
 import { useApp } from '@/contexts/AppContext';
 import { PromoCard } from '@/components/PromoCard';
-import { getLivePromos, type PromoRecord } from '@/src/lib/promo';
+import { getPromos, type PromoRecord } from '@/src/lib/promos';
 
-function normalizeStore(storeId: string | null | undefined): string | null {
+function normalizeStore(storeId: string | null | undefined): "cookeville" | "crossville" | null {
   if (!storeId) return null;
   const value = storeId.toLowerCase();
   if (value.includes('cookeville')) return 'cookeville';
@@ -46,16 +46,9 @@ export default function PromosScreen() {
           setRefreshing(true);
         }
         console.log(`[PromosScreen] 📲 Fetching promos for store: ${storeSlug}`);
-        const live = await getLivePromos({ storeIds: [storeSlug] });
-        console.log(`[PromosScreen] 📦 Received ${live.length} promos from service`);
-        
-        const filtered = live.filter((promo) => {
-          if (!promo.storeId) return false;
-          const slug = promo.storeId.toLowerCase();
-          return slug.includes(storeSlug);
-        });
-        console.log(`[PromosScreen] ✅ Filtered to ${filtered.length} promos`);
-        setPromos(filtered);
+        const items = await getPromos(storeSlug);
+        console.log(`[PromosScreen] ✅ Loaded ${items.length} promos`);
+        setPromos(items);
         setError(null);
       } catch (err: any) {
         console.error('[PromosScreen] 💥 Failed to load promos:', err);
