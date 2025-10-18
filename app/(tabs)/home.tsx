@@ -1,7 +1,7 @@
 /* eslint-disable @rork/linters/expo-router-enforce-safe-area-usage */
 /* eslint-disable @rork/linters/expo-router-no-unregistered-tabs-files */
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { View, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback } from "react-native";
 import type { WebView } from "react-native-webview";
 import { useFocusEffect } from "@react-navigation/native";
 import { WebShell } from "@/components/WebShell";
@@ -29,6 +29,8 @@ export default function HomeTab() {
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
+  const [isModalOpen, setModalOpen] = useState(false);
+  const dismissedForSession = useRef(false);
   const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const insets = useSafeAreaInsets();
 
@@ -66,12 +68,21 @@ export default function HomeTab() {
   }, [fetchPromos]);
 
   useEffect(() => {
-    if (!promos.length) {
+    dismissedForSession.current = false;
+  }, [activeStoreId]);
+
+  useEffect(() => {
+    if (promos.length > 0 && !dismissedForSession.current) {
+      setModalOpen(true);
+    }
+  }, [promos]);
+
+  useEffect(() => {
+    if (!isModalOpen || promos.length <= 1) {
       if (cycleTimerRef.current) {
         clearInterval(cycleTimerRef.current);
         cycleTimerRef.current = null;
       }
-      setCurrentPromoIndex(0);
       return;
     }
 
@@ -89,7 +100,7 @@ export default function HomeTab() {
         cycleTimerRef.current = null;
       }
     };
-  }, [promos]);
+  }, [isModalOpen, promos]);
 
   useEffect(() => () => {
     if (cycleTimerRef.current) {
@@ -101,12 +112,22 @@ export default function HomeTab() {
   const handleNextPromo = useCallback(() => {
     if (!promos.length) return;
     setCurrentPromoIndex((prev) => (prev + 1) % promos.length);
-  }, [promos]);
+  }, [promos.length]);
 
   const handlePrevPromo = useCallback(() => {
     if (!promos.length) return;
     setCurrentPromoIndex((prev) => (prev - 1 + promos.length) % promos.length);
-  }, [promos]);
+  }, [promos.length]);
+
+  const closeModal = useCallback(() => {
+    dismissedForSession.current = true;
+    setModalOpen(false);
+  }, []);
+
+  const openModal = useCallback(() => {
+    if (!promos.length) return;
+    setModalOpen(true);
+  }, [promos.length]);
 
   useEffect(() => {
     if (currentPromoIndex >= promos.length && promos.length > 0) {
@@ -115,6 +136,11 @@ export default function HomeTab() {
   }, [currentPromoIndex, promos]);
 
   const currentPromo = promos[currentPromoIndex] ?? null;
+
+  const handlePromoView = useCallback((url: string) => {
+    openPromoUrl(url);
+    closeModal();
+  }, [openPromoUrl, closeModal]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -137,72 +163,108 @@ export default function HomeTab() {
 
   return (
     <View style={styles.container}>
-      <View
-        style={[
-          styles.promoWrapper,
-          { paddingTop: Math.max(insets.top, 12) + 12 },
-        ]}
-        pointerEvents="box-none"
-      >
-        <View style={styles.promoHeader}>
-          <Text style={styles.promoHeading}>{activeStoreId.toUpperCase()} PROMOTIONS</Text>
-          {promos.length > 1 && (
-            <Text style={styles.promoMeta}>
-              {currentPromoIndex + 1} / {promos.length}
-            </Text>
-          )}
-        </View>
-
-        {loadingPromos ? (
-          <View style={styles.skeletonCard}>
-            <View style={styles.skeletonLineWide} />
-            <View style={styles.skeletonLine} />
-            <View style={styles.skeletonLineShort} />
-          </View>
-        ) : currentPromo ? (
-          <PromoCard promo={currentPromo} onPressView={openPromoUrl} />
-        ) : (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>No promotions available right now.</Text>
-          </View>
-        )}
-
-        {promos.length > 1 && (
-          <View style={styles.promoControls}>
-            <TouchableOpacity
-              onPress={handlePrevPromo}
-              style={styles.navButton}
-              accessibilityRole="button"
-              accessibilityLabel="Previous promotion"
-            >
-              <Ionicons name="chevron-back" size={20} color="#1E4D3A" />
-            </TouchableOpacity>
-            <View style={styles.dots}>
-              {promos.map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.dot,
-                    index === currentPromoIndex && styles.dotActive,
-                  ]}
-                />
-              ))}
-            </View>
-            <TouchableOpacity
-              onPress={handleNextPromo}
-              style={styles.navButton}
-              accessibilityRole="button"
-              accessibilityLabel="Next promotion"
-            >
-              <Ionicons name="chevron-forward" size={20} color="#1E4D3A" />
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
       <View style={styles.webShellWrapper}>
         <WebShell ref={ref} initialUrl="https://greenhauscc.com/" tabKey="home" />
       </View>
+
+      {promos.length > 0 && !isModalOpen && (
+        <TouchableOpacity
+          onPress={openModal}
+          activeOpacity={0.85}
+          style={[
+            styles.fab,
+            {
+              bottom: Math.max(insets.bottom, 16) + 24,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Show promotions"
+        >
+          <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+          <Text style={styles.fabLabel}>Promos</Text>
+          {promos.length > 1 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeLabel}>{promos.length}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
+      <Modal
+        visible={isModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
+        <TouchableWithoutFeedback onPress={closeModal}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>
+                    {activeStoreId.toUpperCase()} PROMOTIONS
+                  </Text>
+                  <TouchableOpacity
+                    onPress={closeModal}
+                    style={styles.closeButton}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close promotions"
+                  >
+                    <Ionicons name="close" size={20} color="#6B7280" />
+                  </TouchableOpacity>
+                </View>
+
+                {loadingPromos ? (
+                  <View style={styles.skeletonCard}>
+                    <View style={styles.skeletonLineWide} />
+                    <View style={styles.skeletonLine} />
+                    <View style={styles.skeletonLineShort} />
+                  </View>
+                ) : currentPromo ? (
+                  <>
+                    <PromoCard promo={currentPromo} onPressView={handlePromoView} />
+                    {promos.length > 1 && (
+                      <View style={styles.modalControls}>
+                        <TouchableOpacity
+                          onPress={handlePrevPromo}
+                          style={styles.navButton}
+                          accessibilityRole="button"
+                          accessibilityLabel="Previous promotion"
+                        >
+                          <Ionicons name="chevron-back" size={20} color="#1E4D3A" />
+                        </TouchableOpacity>
+                        <View style={styles.dots}>
+                          {promos.map((_, index) => (
+                            <View
+                              key={index}
+                              style={[
+                                styles.dot,
+                                index === currentPromoIndex && styles.dotActive,
+                              ]}
+                            />
+                          ))}
+                        </View>
+                        <TouchableOpacity
+                          onPress={handleNextPromo}
+                          style={styles.navButton}
+                          accessibilityRole="button"
+                          accessibilityLabel="Next promotion"
+                        >
+                          <Ionicons name="chevron-forward" size={20} color="#1E4D3A" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyText}>No promotions available right now.</Text>
+                  </View>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
@@ -212,33 +274,89 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  promoWrapper: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 12,
-    backgroundColor: "#FFFFFF",
-    zIndex: 10,
+  webShellWrapper: {
+    flex: 1,
   },
-  promoHeader: {
+  fab: {
+    position: "absolute",
+    right: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: "#1E4D3A",
+    borderRadius: 999,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  fabLabel: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#10B981",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  badgeLabel: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 20, 13, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalContainer: {
+    width: "88%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingVertical: 24,
+    paddingHorizontal: 22,
+    gap: 18,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    marginBottom: -4,
   },
-  promoHeading: {
-    fontSize: 12,
+  modalTitle: {
+    fontSize: 13,
     fontWeight: "700",
     color: "#1E4D3A",
     letterSpacing: 1,
   },
-  promoMeta: {
-    fontSize: 12,
-    color: "#6B7280",
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
   },
-  promoControls: {
+  modalControls: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: -4,
   },
   navButton: {
     width: 36,
@@ -301,8 +419,5 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: "#6B7280",
-  },
-  webShellWrapper: {
-    flex: 1,
   },
 });

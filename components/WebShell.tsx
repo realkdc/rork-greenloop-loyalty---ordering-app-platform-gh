@@ -100,6 +100,10 @@ const CART_COUNTER_SCRIPT = `
       console.log('[CartCounter] ⚠️ On cart page with 0 items but not confirmed, skipping');
       return;
     }
+    if (n === 0 && !state.ready && !fromAPI){
+      console.log('[CartCounter] ⏭️ Ignoring zero before ready state');
+      return;
+    }
 
     if (fromAPI){
       state.ready = true;
