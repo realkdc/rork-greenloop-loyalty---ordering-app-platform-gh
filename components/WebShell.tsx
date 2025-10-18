@@ -37,7 +37,7 @@ const CART_COUNTER_SCRIPT = `
   if (window.__ghCartCounter?.installed) return;
   let persisted = -1;
   try { persisted = parseInt(sessionStorage.getItem('__ghLastCount')||''); } catch {}
-  window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false };
+  window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false, synced:false };
   window.__ghCC = window.__ghCartCounter;
   function isCartPage(){ return /\\/cart(\\b|\\/|$)/i.test(location.pathname) || /#checkout/i.test(location.hash); }
   function persist(n){ try{ sessionStorage.setItem('__ghLastCount', String(n)); }catch{} }
@@ -69,16 +69,20 @@ const CART_COUNTER_SCRIPT = `
     return null;
   }
   function post(n, fromAPI){
-    if (!window.__ghCartCounter.active) return;
-    if (n===null || n===undefined){ if(!window.__ghCartCounter.ready) return; n=window.__ghCartCounter.lastValue; }
-    if (n===0 && window.__ghCartCounter.lastValue>0 && isCartPage() && !window.__ghCartCounter.confirmedEmpty) return;
-    if (fromAPI){ window.__ghCartCounter.ready=true; window.__ghCartCounter.confirmedEmpty = n===0; }
-    if (n>0){ window.__ghCartCounter.ready=true; window.__ghCartCounter.confirmedEmpty=false; }
-    if (n===window.__ghCartCounter.lastValue) return;
-    window.__ghCartCounter.lastValue = n;
+    const state = window.__ghCartCounter;
+    if (!state.active) return;
+    if (n===null || n===undefined){ if(!state.ready) return; n=state.lastValue; }
+    if (n===0 && state.lastValue>0 && isCartPage() && !state.confirmedEmpty) return;
+    if (fromAPI){ state.ready=true; state.confirmedEmpty = n===0; }
+    if (n>0){ state.ready=true; state.confirmedEmpty=false; }
+    const prev = state.lastValue;
+    const shouldSkip = state.synced && n===prev;
+    state.lastValue = n;
+    if (shouldSkip) return;
     persist(n);
     if (window.ReactNativeWebView){
       window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
+      state.synced = true;
     }
   }
   function tryAPI(){
