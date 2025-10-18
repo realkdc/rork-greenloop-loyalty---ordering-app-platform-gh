@@ -28,8 +28,6 @@ interface AppState {
   addPoints: (points: number, description: string, campaignId?: string) => Promise<void>;
   redeemReward: (reward: Reward) => Promise<void>;
   redeemCode: (code: string) => Promise<{ success: boolean; points?: number; message: string }>;
-  promoPopupShown: boolean;
-  setPromoPopupShown: (shown: boolean) => void;
 }
 
 export const [AppProvider, useApp] = createContextHook<AppState>(() => {
@@ -43,7 +41,6 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [onboardingCompleted, setOnboardingCompletedState] = useState<boolean>(false);
   const [selectedStoreId, setSelectedStoreIdState] = useState<string | null>(null);
   const [lastKnownState, setLastKnownStateState] = useState<string | null>(null);
-  const [promoPopupShown, setPromoPopupShown] = useState<boolean>(false);
 
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
@@ -228,7 +225,6 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setOnboardingCompletedState(false);
     setSelectedStoreIdState(null);
     setLastKnownStateState(null);
-    setPromoPopupShown(false);
     console.log('[AppContext] Onboarding cleared');
   }, []);
 
@@ -253,7 +249,5 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     addPoints,
     redeemReward,
     redeemCode,
-    promoPopupShown,
-    setPromoPopupShown,
-  }), [transactions, rewards, campaigns, isLoading, shopUrl, cartCount, setCartCount, onboardingCompleted, selectedStoreId, lastKnownState, setOnboardingCompleted, setSelectedStoreId, setLastKnownState, clearOnboarding, refreshTransactions, refreshCampaigns, addPoints, redeemReward, redeemCode, promoPopupShown]);
+  }), [transactions, rewards, campaigns, isLoading, shopUrl, cartCount, setCartCount, onboardingCompleted, selectedStoreId, lastKnownState, setOnboardingCompleted, setSelectedStoreId, setLastKnownState, clearOnboarding, refreshTransactions, refreshCampaigns, addPoints, redeemReward, redeemCode]);
 });
