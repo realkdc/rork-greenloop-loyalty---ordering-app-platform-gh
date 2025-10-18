@@ -41,7 +41,7 @@ const CART_COUNTER_SCRIPT = `
   }
   let persisted = -1;
   try { persisted = parseInt(sessionStorage.getItem('__ghLastCount')||''); } catch {}
-  window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false, synced:false };
+  window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false, synced:false, pending:null };
   window.__ghCC = window.__ghCartCounter;
   console.log('[CartCounter] ✅ Initialized with persisted value:', window.__ghCartCounter.lastValue);
   
@@ -115,6 +115,9 @@ const CART_COUNTER_SCRIPT = `
     }
 
     state.lastValue = n;
+    if (n !== prev) {
+      state.synced = false;
+    }
 
     const unchanged = state.synced && n === prev;
     if (unchanged && !fromAPI){
@@ -124,15 +127,44 @@ const CART_COUNTER_SCRIPT = `
 
     persist(n);
 
+    const now = Date.now();
+    if (!state.pending || state.pending.value !== n) {
+      state.pending = { value: n, firstAttempt: now, attempts: 0 };
+    }
+    const pending = state.pending;
+
+    function scheduleRetry(delay){
+      setTimeout(function(){ post(n, fromAPI); }, delay);
+    }
+
     if (!window.ReactNativeWebView){
-      console.log('[CartCounter] ⚠️ ReactNativeWebView not available, retrying...');
-      setTimeout(() => post(n, fromAPI), 200);
+      pending.attempts += 1;
+      if (now - pending.firstAttempt > 15000){
+        console.log('[CartCounter] 🛑 Bridge not ready after multiple attempts, giving up');
+        state.pending = null;
+        return;
+      }
+      console.log('[CartCounter] ⚠️ Bridge not ready (attempt ' + pending.attempts + ') - retrying');
+      scheduleRetry(Math.min(1200, 200 + pending.attempts * 200));
       return;
     }
 
-    console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
-    window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
-    state.synced = true;
+    try{
+      console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type:'CART_COUNT', value:n }));
+      state.synced = true;
+      state.pending = null;
+    }catch(e){
+      const retryNow = Date.now();
+      pending.attempts += 1;
+      if (retryNow - pending.firstAttempt > 15000){
+        console.log('[CartCounter] ❌ Failed to post after multiple attempts, dropping.', e);
+        state.pending = null;
+        return;
+      }
+      console.log('[CartCounter] ❌ Error posting to bridge, retrying...', e);
+      scheduleRetry(Math.min(1200, 200 + pending.attempts * 200));
+    }
   }
   function tryAPI(){
     console.log('[CartCounter] 🔍 Trying Ecwid API, Ecwid available:', !!window.Ecwid);
@@ -444,21 +476,18 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
     const handleLoadEnd = useCallback(() => {
       setIsLoading(false);
       console.log(`[WebShell:${tabKey}] ✅ Load complete, requesting cart count`);
-      const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
-      if (actualRef) {
+      const pingDelays = tabKey === 'home'
+        ? [800, 2000, 3500, 5000, 6500, 8000, 9500, 11000]
+        : [500, 2000, 5000];
+      pingDelays.forEach((delay, idx) => {
         setTimeout(() => {
-          console.log(`[WebShell:${tabKey}] 📤 Sending PING after load`);
-          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
-        }, 500);
-        setTimeout(() => {
-          console.log(`[WebShell:${tabKey}] 📤 Sending second PING after 2s`);
-          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
-        }, 2000);
-        setTimeout(() => {
-          console.log(`[WebShell:${tabKey}] 📤 Sending third PING after 5s`);
-          actualRef.postMessage(JSON.stringify({ type: 'PING' }));
-        }, 5000);
-      }
+          const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+          if (targetRef) {
+            console.log(`[WebShell:${tabKey}] 📤 Sending PING after ${delay}ms (load seq #${idx + 1})`);
+            targetRef.postMessage(JSON.stringify({ type: 'PING' }));
+          }
+        }, delay);
+      });
     }, [ref, tabKey]);
 
     useEffect(() => {
@@ -495,6 +524,19 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             console.log(`[WebShell:${tabKey}] 📤 Sending PING for cart check`);
             actualRef.postMessage(JSON.stringify({ type: 'PING' }));
           }, 100);
+          if (tabKey === 'home') {
+            const extraFocusPings = [700, 1800, 3200, 5200, 7200];
+            extraFocusPings.forEach((delay, idx) => {
+              setTimeout(() => {
+                if (!isMountedRef.current || !isActiveRef.current) return;
+                const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+                if (targetRef) {
+                  console.log(`[WebShell:${tabKey}] 📤 Sending extra focus PING after ${delay}ms (focus seq #${idx + 2})`);
+                  targetRef.postMessage(JSON.stringify({ type: 'PING' }));
+                }
+              }, delay);
+            });
+          }
         }
         return () => {
           console.log(`[WebShell:${tabKey}] 👋 Tab blurred`);
