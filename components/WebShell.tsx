@@ -250,12 +250,57 @@ true;
 const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profile') => `
 (function(){
   const TAB_KEY = '${tabKey}';
+  if (typeof window.__ghMagicLinkCooldown === 'undefined') {
+    window.__ghMagicLinkCooldown = 0;
+  }
+
+  const MAGIC_TEXT_REGEX = /link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you/i;
+  let lastMagicText = '';
+
+  function triggerMagicLinkBanner(source){
+    const now = Date.now();
+    if (now - window.__ghMagicLinkCooldown < 3000) return;
+    window.__ghMagicLinkCooldown = now;
+    console.log('[Auth] Email confirmation detected (' + source + ')');
+    setTimeout(() => {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({type:'EMAIL_LINK_SENT'}));
+    }, 600);
+  }
+
+  function scanForMagic(source){
+    try {
+      const bodyText = document.body?.innerText || '';
+      if (bodyText === lastMagicText) return;
+      lastMagicText = bodyText;
+      if (MAGIC_TEXT_REGEX.test(bodyText)) {
+        triggerMagicLinkBanner(source);
+      }
+    } catch(_) {}
+  }
+
+  const magicObserver = new MutationObserver(function(){
+    scanForMagic('observer');
+  });
+
+  function startMagicWatcher(){
+    const target = document.body;
+    if (!target) return;
+    magicObserver.observe(target, { subtree: true, childList: true, characterData: true });
+    scanForMagic('initial');
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', startMagicWatcher, { once: true });
+  } else {
+    startMagicWatcher();
+  }
+
   let pendingNavTarget = null;
   let pendingNavTimer = null;
   function scheduleNavIntent(target){
     pendingNavTarget = target;
     if (pendingNavTimer) clearTimeout(pendingNavTimer);
-    pendingNavTimer = setTimeout(()=>{ pendingNavTarget = null; }, 1600);
+    pendingNavTimer = setTimeout(function(){ pendingNavTarget = null; }, 1600);
   }
   function consumePending(target){
     if (!target) return false;
@@ -277,33 +322,6 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     window.ReactNativeWebView?.postMessage(JSON.stringify({type:'NAVIGATE_TAB', tab}));
   }
 
-  let lastBodyText = '';
-  const loginObserver = new MutationObserver(function(){
-    try{
-      const bodyText = document.body.innerText || '';
-      if(bodyText === lastBodyText) return;
-      lastBodyText = bodyText;
-      
-      if(/link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you/i.test(bodyText)){
-        console.log('[Auth] Email confirmation detected');
-        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'EMAIL_LINK_SENT'}));
-      }
-    }catch(e){}
-  });
-  if(document.body){
-    loginObserver.observe(document.body, {subtree: true, childList: true});
-  }
-  
-  setTimeout(function(){
-    try{
-      const bodyText = document.body.innerText || '';
-      if(/link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you/i.test(bodyText)){
-        console.log('[Auth] Email confirmation already visible');
-        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'EMAIL_LINK_SENT'}));
-      }
-    }catch(e){}
-  }, 1000);
-  
   function checkNav(force){
     try{
       const url = window.location.href;

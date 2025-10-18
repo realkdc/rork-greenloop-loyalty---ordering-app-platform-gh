@@ -142,21 +142,39 @@ export const INJECTED_JS = `
 
   const post = (d) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(d));
 
+  const MAGIC_TEXT_REGEX = /link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you|magic.*link.*sent/i;
+  let lastMagicText = '';
+
+  if (typeof window.__ghMagicLinkCooldown === 'undefined') {
+    window.__ghMagicLinkCooldown = 0;
+  }
+  function handleMagicLinkDetected(source) {
+    const now = Date.now();
+    if (now - window.__ghMagicLinkCooldown < 3000) {
+      return;
+    }
+    window.__ghMagicLinkCooldown = now;
+    console.log('[Auth] Magic link email detected (' + source + ')');
+    post({ type: 'EMAIL_LINK_SENT' });
+  }
+
+  function scanForMagic(source) {
+    try {
+      const confirmText = document.body?.textContent || '';
+      if (confirmText === lastMagicText) {
+        return;
+      }
+      lastMagicText = confirmText;
+      if (MAGIC_TEXT_REGEX.test(confirmText)) {
+        handleMagicLinkDetected(source);
+      }
+    } catch (e) {}
+  }
+
   function detectMagicLinkRequest() {
     try {
       const observer = new MutationObserver(() => {
-        const confirmText = document.body.textContent || '';
-        if (
-          /link.*has.*been.*sent/i.test(confirmText) ||
-          /check.*your.*email/i.test(confirmText) ||
-          /sent.*you.*link/i.test(confirmText) ||
-          /email.*sent/i.test(confirmText) ||
-          /we.*sent.*you/i.test(confirmText) ||
-          /magic.*link.*sent/i.test(confirmText)
-        ) {
-          console.log('[Auth] Magic link email detected');
-          post({ type: 'EMAIL_LINK_SENT' });
-        }
+        scanForMagic('observer');
       });
       
       observer.observe(document.body, {
@@ -164,6 +182,8 @@ export const INJECTED_JS = `
         subtree: true,
         characterData: true,
       });
+
+      scanForMagic('initial');
     } catch(e) {
       console.log('Magic link detection error:', e);
     }

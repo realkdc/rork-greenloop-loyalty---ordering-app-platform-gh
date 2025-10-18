@@ -9,7 +9,6 @@ import { webviewRefs } from "./_layout";
 import { useFocusEffect } from "@react-navigation/native";
 import { Mail, Link2, RotateCcw } from "lucide-react-native";
 import Colors from "@/constants/colors";
-import { StorageService } from "@/services/storage";
 import { useRouter } from "expo-router";
 import { AUTH_CONFIG } from "@/config/authConfig";
 import { useApp } from "@/contexts/AppContext";
@@ -131,7 +130,6 @@ export default function ProfileTab() {
       if (msg.type === 'EMAIL_LINK_SENT') {
         console.log('📧 Email link sent confirmation');
         hasAppliedLinkRef.current = false;
-        
         setTimeout(() => {
           setShowPasteButton(true);
         }, 1000);

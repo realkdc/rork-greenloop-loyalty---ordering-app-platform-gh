@@ -1,0 +1,9 @@
+node_modules
+.tmp-home
+# build output
+build
+/dist
+ios
+android
+.DS_Store
+*.log
