@@ -10,7 +10,31 @@ import {
 } from 'firebase/firestore';
 import { app } from '@/app/lib/firebase';
 
-const firestore = getFirestore(app);
+let firestore: ReturnType<typeof getFirestore> | null = null;
+
+function getFirestoreInstance() {
+  if (!firestore) {
+    try {
+      if (typeof getFirestore !== 'function') {
+        throw new Error('getFirestore is not a function - Firebase may not be properly initialized');
+      }
+      firestore = getFirestore(app);
+      console.log('[PromoService] ✅ Firestore initialized successfully');
+    } catch (error: any) {
+      console.error('[PromoService] 💥 Failed to initialize Firestore:', error);
+      console.error('[PromoService] Firebase imports:', {
+        getFirestore: typeof getFirestore,
+        collection: typeof collection,
+        getDocs: typeof getDocs,
+        query: typeof query,
+        where: typeof where,
+        limit: typeof limit,
+      });
+      throw error;
+    }
+  }
+  return firestore;
+}
 
 export type PromoRecord = {
   id: string;
@@ -56,8 +80,25 @@ type PromoQueryOptions = {
 
 export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Date.now() }: PromoQueryOptions): Promise<PromoRecord[]> {
   try {
+    console.log('[PromoService] 🚀 Starting getLivePromos...');
     const nowDate = new Date(now);
-    const promotionsRef = collection(firestore, 'promotions');
+    const db = getFirestoreInstance();
+    
+    if (typeof collection !== 'function') {
+      throw new Error('collection is not a function');
+    }
+    const promotionsRef = collection(db, 'promotions');
+    console.log('[PromoService] ✅ Collection reference created');
+    
+    if (typeof query !== 'function') {
+      throw new Error('query is not a function');
+    }
+    if (typeof where !== 'function') {
+      throw new Error('where is not a function');
+    }
+    if (typeof limit !== 'function') {
+      throw new Error('limit is not a function');
+    }
 
     const normalizedStoreIds = (storeIds.length ? storeIds : ['cookeville', 'crossville']).map((id) => id.toLowerCase());
 
