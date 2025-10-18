@@ -61,9 +61,6 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
     const promotionsRef = collection(firestore, 'promotions');
 
     const normalizedStoreIds = (storeIds.length ? storeIds : ['cookeville', 'crossville']).map((id) => id.toLowerCase());
-    const storeFilter = normalizedStoreIds.length === 1
-      ? where('storeId', '==', normalizedStoreIds[0])
-      : where('storeId', 'in', normalizedStoreIds.slice(0, 10));
 
     console.log('[PromoService] 🔍 Querying Firestore:', {
       collection: 'promotions',
@@ -75,9 +72,8 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
     const q = query(
       promotionsRef,
       where('status', '==', 'live'),
-      storeFilter,
       orderBy('startsAt', 'desc'),
-      limit(limitCount)
+      limit(50)
     );
 
     console.log('[PromoService] 📡 Executing query...');
@@ -102,6 +98,21 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
     });
 
     const promos = allDocs.filter((promo) => {
+      if (!promo.storeId) {
+        console.log(`[PromoService] ✅ Included ${promo.id}: No storeId filter`);
+        return true;
+      }
+      const matches = normalizedStoreIds.length === 1
+        ? promo.storeId.toLowerCase().includes(normalizedStoreIds[0])
+        : normalizedStoreIds.some((id) => promo.storeId?.toLowerCase().includes(id));
+      
+      if (!matches) {
+        console.log(`[PromoService] ❌ Filtered ${promo.id}: Store doesn't match (${promo.storeId})`);
+        return false;
+      }
+      
+      console.log(`[PromoService] ✅ Included ${promo.id}: Store matches`);
+      
       const startsAt = promo.startsAt?.getTime();
       const endsAt = promo.endsAt?.getTime();
       
@@ -117,21 +128,8 @@ export async function getLivePromos({ storeIds, limit: limitCount = 5, now = Dat
         console.log(`[PromoService] ❌ Filtered ${promo.id}: Expired (${new Date(endsAt).toISOString()})`);
         return false;
       }
-      if (!promo.storeId) {
-        console.log(`[PromoService] ✅ Included ${promo.id}: No storeId filter`);
-        return true;
-      }
-      const matches = normalizedStoreIds.length === 1
-        ? promo.storeId.toLowerCase().includes(normalizedStoreIds[0])
-        : normalizedStoreIds.some((id) => promo.storeId?.toLowerCase().includes(id));
-      
-      if (matches) {
-        console.log(`[PromoService] ✅ Included ${promo.id}: Store matches`);
-      } else {
-        console.log(`[PromoService] ❌ Filtered ${promo.id}: Store doesn't match (${promo.storeId})`);
-      }
-      return matches;
-    });
+      return true;
+    }).slice(0, limitCount);
 
     console.log(`[PromoService] 🎉 Returning ${promos.length} active promos`);
     return promos;
