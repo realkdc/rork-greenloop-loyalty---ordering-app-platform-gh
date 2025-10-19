@@ -29,6 +29,13 @@ yarn-error.*
 .DS_Store
 *.pem
 
+# local build artifacts
+build/
+*.app
+*.tar.gz
+Simulator Screenshot -*
+.tmp-home/
+
 # local env files
 .env*.local
 
