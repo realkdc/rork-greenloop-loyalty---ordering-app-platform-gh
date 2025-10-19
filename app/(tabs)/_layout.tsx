@@ -1,5 +1,5 @@
-import { Tabs } from "expo-router";
-import { View, Text, StyleSheet } from "react-native";
+import { Link, Tabs } from "expo-router";
+import { View, Text, StyleSheet, Pressable } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
@@ -57,6 +57,7 @@ export default function Layout() {
       }}
     >
       {(["home", "search", "cart", "orders", "profile"] as const).map((name) => {
+        const isHome = name === "home";
         const iconConfig = TAB_ICONS[name];
         if (!iconConfig) {
           console.error('Missing icon config for tab:', name);
@@ -69,6 +70,17 @@ export default function Layout() {
             name={name}
             options={{
               title: TAB_LABELS[name] || name,
+              headerShown: isHome ? __DEV__ : false,
+              headerRight:
+                isHome && __DEV__
+                  ? () => (
+                      <Link href="/dev" asChild>
+                        <Pressable hitSlop={8} style={styles.devLink}>
+                          <Text style={styles.devLinkText}>Dev</Text>
+                        </Pressable>
+                      </Link>
+                    )
+                  : undefined,
               tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => {
                 const iconName = focused ? iconConfig.filled : iconConfig.outline;
                 return (
@@ -194,5 +206,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700" as const,
     includeFontPadding: false,
+  },
+  devLink: {
+    marginRight: 12,
+  },
+  devLinkText: {
+    color: "#2563eb",
+    fontSize: 15,
+    fontWeight: "600" as const,
   },
 });
