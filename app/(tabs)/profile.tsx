@@ -1,23 +1,48 @@
-import React, { useRef, useState, useCallback } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, Linking } from "react-native";
+import React, { useRef, useState, useCallback, useEffect } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, Linking, Dimensions } from "react-native";
 import type { WebView } from "react-native-webview";
 import * as Clipboard from "expo-clipboard";
 import { WebShell } from "@/components/WebShell";
 import { webviewRefs } from "./_layout";
 import { useFocusEffect } from "@react-navigation/native";
-import { Mail, Link2, RotateCcw } from "lucide-react-native";
+import { Mail, Link2 } from "lucide-react-native";
 import Colors from "@/constants/colors";
-import { useRouter } from "expo-router";
 import { AUTH_CONFIG } from "@/config/authConfig";
-import { useApp } from "@/contexts/AppContext";
+
+const MAGIC_CONFIRM_SELECTORS = [
+  '.ec-notification',
+  '.ec-notice',
+  '.ec-alert',
+  '.ec-info-block',
+  '.ec-store__notice',
+  '.ec-popup__msg',
+  '.notification',
+  '.alert',
+  '.message',
+  '.toast',
+  '.snackbar',
+  '.ins-notification',
+  '[role="alert"]',
+  '[data-testid="magic-link-confirmation"]'
+];
+
+const CONFIRMATION_PATTERN_SOURCES = AUTH_CONFIG.confirmationTextPatterns.map(pattern => pattern.source);
+const DEFAULT_HELPER_TOP = 168;
 
 export default function ProfileTab() {
   const ref = useRef<WebView>(null);
-  const router = useRouter();
-  const { clearOnboarding } = useApp();
-  const [showPasteButton, setShowPasteButton] = useState<boolean>(false);
+  const [showHelper, setShowHelper] = useState<boolean>(false);
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
+  const [helperOffset, setHelperOffset] = useState<number>(DEFAULT_HELPER_TOP);
   const hasAppliedLinkRef = useRef<boolean>(false);
+  const hasRequestedLinkRef = useRef<boolean>(false);
+  const bannerDismissedRef = useRef<boolean>(false);
+  const isLoggedInRef = useRef<boolean>(false);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bannerTimerDeadlineRef = useRef<number>(0);
+  const screenHeightRef = useRef<number>(Dimensions.get("window").height);
+  const toastVisibleRef = useRef<boolean>(false);
+  const fallbackAttemptsRef = useRef<number>(0);
   
   webviewRefs.profile = ref;
 
@@ -52,7 +77,7 @@ export default function ProfileTab() {
 
     console.log('🔐 Applying magic link:', magicUrl);
     hasAppliedLinkRef.current = true;
-    setShowPasteButton(false);
+    setShowHelper(false);
 
     const applyScript = `
       (function(){
@@ -75,6 +100,221 @@ export default function ProfileTab() {
     setTimeout(() => {
       hasAppliedLinkRef.current = false;
     }, 10000);
+  }, [ref]);
+
+  const suppressMagicBanner = useCallback((isSuppressed: boolean) => {
+    if (!ref.current) {
+      return;
+    }
+    const script = `
+      (function(){
+        window.__ghMagicLinkState = window.__ghMagicLinkState || {};
+        window.__ghMagicLinkState.suppressed = ${isSuppressed ? 'true' : 'false'};
+        if (!window.__ghMagicLinkState.suppressed){
+          window.__ghMagicLinkState.lastVisible = false;
+          window.__ghMagicLinkState.lastRect = null;
+        }
+      })();
+      true;
+    `;
+    ref.current.injectJavaScript(script);
+  }, []);
+
+  const clearBannerTimer = useCallback(() => {
+    if (bannerTimerRef.current) {
+      clearTimeout(bannerTimerRef.current);
+      bannerTimerRef.current = null;
+    }
+    bannerTimerDeadlineRef.current = 0;
+  }, []);
+
+  const computeOffset = useCallback((rect?: { top?: number; bottom?: number; height?: number }) => {
+    if (!rect) {
+      return DEFAULT_HELPER_TOP;
+    }
+    const bottomFromRect =
+      typeof rect.bottom === 'number'
+        ? rect.bottom
+        : typeof rect.top === 'number' && typeof rect.height === 'number'
+          ? rect.top + rect.height
+          : (rect.top ?? 0);
+    const proposed = bottomFromRect + 36;
+    return Math.min(Math.max(proposed, 60), screenHeightRef.current - 200);
+  }, []);
+
+  const lastToastRectRef = useRef<{ top?: number; bottom?: number; height?: number } | null>(null);
+
+  const scheduleBannerFallback = useCallback((delay = 1200, fallbackOffset?: number) => {
+    const now = Date.now();
+    const target = now + delay;
+    if (bannerTimerRef.current && bannerTimerDeadlineRef.current && bannerTimerDeadlineRef.current <= target) {
+      return;
+    }
+    if (bannerTimerRef.current) {
+      clearTimeout(bannerTimerRef.current);
+    }
+    if (!toastVisibleRef.current) {
+      fallbackAttemptsRef.current = 0;
+    }
+    bannerTimerDeadlineRef.current = target;
+    console.log(`[Auth] Scheduling helper banner in ${delay}ms`);
+    bannerTimerRef.current = setTimeout(() => {
+      bannerTimerRef.current = null;
+      bannerTimerDeadlineRef.current = 0;
+
+      if (!hasRequestedLinkRef.current || bannerDismissedRef.current || isLoggedInRef.current) {
+        return;
+      }
+
+      let offset = typeof fallbackOffset === 'number'
+        ? Math.min(Math.max(fallbackOffset, 60), screenHeightRef.current - 200)
+        : computeOffset(lastToastRectRef.current || undefined);
+
+      if (toastVisibleRef.current && lastToastRectRef.current) {
+        offset = Math.min(
+          Math.max((lastToastRectRef.current.bottom ?? 0) + 48, DEFAULT_HELPER_TOP + 12),
+          screenHeightRef.current - 140
+        );
+      } else if (toastVisibleRef.current && !lastToastRectRef.current) {
+        const toastAssumedBottom = DEFAULT_HELPER_TOP + 72;
+        offset = Math.min(Math.max(toastAssumedBottom, 60), screenHeightRef.current - 140);
+      }
+
+      setHelperOffset(offset);
+      setShowHelper(true);
+      fallbackAttemptsRef.current = 0;
+      console.log('[Auth] Helper banner displayed from fallback at offset', offset);
+    }, delay);
+  }, [computeOffset]);
+
+  const updateHelperPosition = useCallback((rect?: { top?: number; bottom?: number; height?: number }) => {
+    const offset = computeOffset(rect);
+    console.log('[Auth] Helper position recalculated:', { offset, rect });
+    setHelperOffset(offset);
+  }, [computeOffset]);
+
+  const startConfirmationProbe = useCallback(() => {
+    if (!ref.current) {
+      return;
+    }
+    const script = `
+      (function(){
+        try {
+          const selectors = ${JSON.stringify(MAGIC_CONFIRM_SELECTORS)};
+          const patternSources = ${JSON.stringify(CONFIRMATION_PATTERN_SOURCES)};
+          const patterns = patternSources.map(function(src){
+            try { return new RegExp(src, 'i'); } catch(_) { return null; }
+          }).filter(Boolean);
+          
+          console.log('[AuthProbe] Installing confirmation probe. selectors=' + selectors.length + ', patterns=' + patterns.length);
+          
+          if (!patterns.length) {
+            console.log('[AuthProbe] No confirmation patterns configured, skipping probe');
+            return true;
+          }
+          
+          window.__ghMagicProbeState = window.__ghMagicProbeState || { timer: null, attempt: 0, origin: 'initial' };
+          
+          function serializeRect(rect){
+            if (!rect) return null;
+            return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, height: rect.height, width: rect.width };
+          }
+          
+          function matches(text){
+            if (!text) return false;
+            const normalized = text.trim();
+            if (!normalized) return false;
+            for (let i = 0; i < patterns.length; i++){
+              if (patterns[i] && patterns[i].test(normalized)) {
+                return true;
+              }
+            }
+            return false;
+          }
+          
+          function findMatch(){
+            for (let s = 0; s < selectors.length; s++){
+              const nodes = document.querySelectorAll(selectors[s]);
+              for (let n = 0; n < nodes.length; n++){
+                const node = nodes[n];
+                if (!node) continue;
+                const text = (node.innerText || node.textContent || '').trim();
+                if (matches(text)) {
+                  return { selector: selectors[s], rect: node.getBoundingClientRect(), text };
+                }
+              }
+            }
+            const bodyText = (document.body && document.body.innerText) ? document.body.innerText.trim() : '';
+            if (matches(bodyText)) {
+              return { selector: 'body', rect: null, text: bodyText };
+            }
+            return null;
+          }
+          
+          function sendResult(payload){
+            try{
+              window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+            }catch(err){
+              console.log('[AuthProbe] postMessage error', err);
+            }
+          }
+          
+          function runProbe(origin){
+            const state = window.__ghMagicProbeState;
+            if (state.timer){
+              clearTimeout(state.timer);
+              state.timer = null;
+            }
+            state.origin = origin || 'unknown';
+            state.attempt = 0;
+            console.log('[AuthProbe] Running probe (origin=' + state.origin + ')');
+            
+            function step(){
+              const match = findMatch();
+              if (match){
+                console.log('[AuthProbe] Confirmation element found via ' + match.selector);
+                sendResult({
+                  type:'EMAIL_LINK_SENT',
+                  confirmationVisible:true,
+                  confirmationRect: serializeRect(match.rect)
+                });
+                state.timer = null;
+                return;
+              }
+              state.attempt += 1;
+              if (state.attempt >= 30){
+                console.log('[AuthProbe] Probe exhausted without finding confirmation');
+                sendResult({
+                  type:'EMAIL_LINK_SENT',
+                  confirmationVisible:false
+                });
+                state.timer = null;
+                return;
+              }
+              const delay = state.attempt < 6 ? 350 : 900;
+              state.timer = setTimeout(step, delay);
+            }
+            
+            step();
+          }
+          
+          window.__ghStartMagicProbe = runProbe;
+          runProbe('initial');
+        } catch (err) {
+          console.log('[AuthProbe] Failed to initialize', err);
+          try{
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type:'EMAIL_LINK_SENT',
+              confirmationVisible:false,
+              error: String(err && err.message ? err.message : err)
+            }));
+          }catch(_err){}
+        }
+        return true;
+      })();
+      true;
+    `;
+    ref.current.injectJavaScript(script);
   }, []);
 
 
@@ -98,7 +338,12 @@ export default function ProfileTab() {
 
       console.log('✅ Valid magic link from manual paste');
       applyMagicLink(clipboardContent);
-      setShowPasteButton(false);
+      clearBannerTimer();
+      setShowHelper(false);
+      toastVisibleRef.current = false;
+      lastToastRectRef.current = null;
+      fallbackAttemptsRef.current = 0;
+      bannerDismissedRef.current = false;
     } catch (error) {
       console.error('Manual paste error:', error);
       Alert.alert('Error', 'Failed to read clipboard. Please try again.');
@@ -125,24 +370,136 @@ export default function ProfileTab() {
     try {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
       
-      if (msg.type === 'EMAIL_LINK_SENT') {
+      switch (msg.type) {
+        case 'MAGIC_LINK_REQUESTED': {
+          if (isLoggedInRef.current) {
+            break;
+          }
+          console.log('[Auth] Magic link request detected from web:', msg.source);
+          hasRequestedLinkRef.current = true;
+          bannerDismissedRef.current = false;
+          lastToastRectRef.current = null;
+          toastVisibleRef.current = false;
+          fallbackAttemptsRef.current = 0;
+          updateHelperPosition(undefined);
+          clearBannerTimer();
+          setShowHelper(false);
+          startConfirmationProbe();
+          scheduleBannerFallback(2000, DEFAULT_HELPER_TOP);
+          break;
+        }
+        case 'EMAIL_LINK_SENT': {
         console.log('📧 Email link sent confirmation');
         hasAppliedLinkRef.current = false;
-        setTimeout(() => {
-          setShowPasteButton(true);
-        }, 1000);
-      }
-
-      if (msg.type === 'LOGIN_SUCCESS') {
-        console.log('✅ Login success');
-        setShowSuccess(true);
-        setShowPasteButton(false);
-        setTimeout(() => setShowSuccess(false), 3000);
+        if (isLoggedInRef.current) {
+          break;
+        }
+          hasRequestedLinkRef.current = true;
+          bannerDismissedRef.current = false;
+          const rect = msg.confirmationRect;
+          if (rect) {
+            lastToastRectRef.current = rect;
+          }
+          else {
+            lastToastRectRef.current = null;
+          }
+          toastVisibleRef.current = !!msg.confirmationVisible;
+        if (rect) {
+          console.log('[Auth] Confirmation rect from web:', rect);
+          updateHelperPosition(rect);
+          clearBannerTimer();
+          setShowHelper(true);
+          fallbackAttemptsRef.current = 0;
+        } else {
+          updateHelperPosition(undefined);
+          setShowHelper(true);
+      scheduleBannerFallback(900, DEFAULT_HELPER_TOP + 36);
+        }
+          break;
+        }
+        case 'MAGIC_CONFIRMATION_VISIBILITY': {
+          const visible = !!msg.visible;
+          toastVisibleRef.current = visible;
+          if (visible) {
+            clearBannerTimer();
+            if (msg.rect) {
+              lastToastRectRef.current = msg.rect;
+              updateHelperPosition(msg.rect);
+            }
+            setShowHelper(false);
+            scheduleBannerFallback(1200, computeOffset(lastToastRectRef.current || undefined));
+          } else {
+            clearBannerTimer();
+            updateHelperPosition(undefined);
+            console.log('[Auth] Confirmation hidden signal received, evaluating helper banner');
+            if (
+              hasRequestedLinkRef.current &&
+              !bannerDismissedRef.current &&
+              !isLoggedInRef.current
+            ) {
+              setShowHelper(true);
+              fallbackAttemptsRef.current = 0;
+            }
+          }
+          break;
+        }
+        case 'AUTH_DEBUG': {
+          console.log('[Auth][Web]', msg.label, msg.data || {});
+          break;
+        }
+        case 'ACCOUNT_LOGIN_STATE': {
+          const loggedIn = !!msg.loggedIn;
+          if (loggedIn !== isLoggedInRef.current) {
+            console.log(`[Auth] Account login state updated: ${loggedIn ? 'logged in' : 'guest'}`);
+          }
+          if (msg.debug) {
+            console.log('[Auth] Account state signals:', msg.debug);
+          }
+          isLoggedInRef.current = loggedIn;
+          if (loggedIn) {
+            hasRequestedLinkRef.current = false;
+            bannerDismissedRef.current = false;
+            clearBannerTimer();
+            setShowHelper(false);
+            setHelperOffset(DEFAULT_HELPER_TOP);
+            suppressMagicBanner(true);
+            toastVisibleRef.current = false;
+            fallbackAttemptsRef.current = 0;
+          } else {
+            suppressMagicBanner(false);
+            if (
+              hasRequestedLinkRef.current &&
+              !bannerDismissedRef.current &&
+              !isLoggedInRef.current
+            ) {
+              scheduleBannerFallback(1500, DEFAULT_HELPER_TOP);
+            }
+          }
+          break;
+        }
+        case 'LOGIN_SUCCESS': {
+          console.log('✅ Login success');
+          isLoggedInRef.current = true;
+          hasRequestedLinkRef.current = false;
+          bannerDismissedRef.current = false;
+          hasAppliedLinkRef.current = false;
+          clearBannerTimer();
+          setShowSuccess(true);
+          setShowHelper(false);
+          setHelperOffset(DEFAULT_HELPER_TOP);
+          suppressMagicBanner(true);
+          toastVisibleRef.current = false;
+          fallbackAttemptsRef.current = 0;
+          setTimeout(() => setShowSuccess(false), 3000);
+          break;
+        }
+        default:
+          break;
       }
     } catch (error) {
       console.error('Profile message error:', error);
     }
-  }, []);
+  }, [clearBannerTimer, scheduleBannerFallback, startConfirmationProbe, suppressMagicBanner, updateHelperPosition]);
 
   useFocusEffect(
     React.useCallback(() => {
@@ -164,6 +521,12 @@ export default function ProfileTab() {
     }, [])
   );
 
+  useEffect(() => {
+    return () => {
+      clearBannerTimer();
+    };
+  }, [clearBannerTimer]);
+
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
     
@@ -171,56 +534,67 @@ export default function ProfileTab() {
     
     const isAccountPage = url.includes('/account') && !url.includes('/login');
     
-    if (isAccountPage && hasAppliedLinkRef.current) {
-      setTimeout(() => {
-        console.log('✅ On account page after login, checking for user info');
-        ref.current?.injectJavaScript(`
-          (function(){
+    if (isAccountPage) {
+      const loginCheckDelay = hasAppliedLinkRef.current ? 2500 : 1200;
+      const loginCheckScript = `
+        (() => {
+          try {
+            const hasUser = ${AUTH_CONFIG.successSelectors.map(
+              sel => `!!document.querySelector('${sel}')`
+            ).join(' || ') || 'false'};
+            
+            const bodyText = document.body.innerText || '';
+            const hasLogoutText = /log\\s*\\.*\\s*out|sign\\s*\\.*\\s*out/i.test(bodyText);
+            const hasOrdersText = /your\\s+orders|order\\s+history/i.test(bodyText);
+            const hasWelcomeText = /welcome\\s+back|hi[,\\s]/i.test(bodyText);
+            const hasGuestText = /guest\\s+account/i.test(bodyText);
+            
+            const hasLoginForm = !!document.querySelector('form[action*="login"], form[action*="signin"], form[action*="account"], input[type="email"][name*="email"], input#customer-email, input[name="customer[email]"], input[type="password"]');
+            const hasAuthCookie = ${AUTH_CONFIG.cookieNames.length ? AUTH_CONFIG.cookieNames.map(name => `document.cookie.includes('${name}=')`).join(' || ') : 'false'};
+            let hasAuthStorage = false;
             try {
-              const hasUser = ${AUTH_CONFIG.successSelectors.map(
-                sel => `!!document.querySelector('${sel}')`
-              ).join(' || ')};
-              
-              const bodyText = document.body.innerText || '';
-              const hasLogoutText = /log.*out|sign.*out/i.test(bodyText);
-              const hasOrdersText = /your.*orders|order.*history/i.test(bodyText);
-              const hasWelcomeText = /welcome.*back|hi[,\\s]/i.test(bodyText);
-              
-              console.log('[Auth] Login check - hasUser:', hasUser, 'hasLogoutText:', hasLogoutText, 'hasOrdersText:', hasOrdersText, 'hasWelcomeText:', hasWelcomeText);
-              
-              if (hasUser || hasLogoutText || hasOrdersText || hasWelcomeText) {
+              hasAuthStorage = Boolean(${AUTH_CONFIG.storageKeys.length ? AUTH_CONFIG.storageKeys.map(key => `(localStorage.getItem('${key}') || sessionStorage.getItem('${key}'))`).join(' || ') : 'false'});
+            } catch (_storageError) {}
+            
+            let isLoggedIn = false;
+            if (hasGuestText) {
+              isLoggedIn = false;
+            } else if (hasUser || hasOrdersText || hasWelcomeText) {
+              isLoggedIn = true;
+            } else if ((hasLogoutText && !hasLoginForm) || hasAuthCookie || hasAuthStorage) {
+              isLoggedIn = true;
+            }
+            
+            window.ReactNativeWebView?.postMessage(JSON.stringify({
+              type:'ACCOUNT_LOGIN_STATE',
+              loggedIn: isLoggedIn,
+              debug: {
+                hasUser,
+                hasOrdersText,
+                hasWelcomeText,
+                hasLogoutText,
+                hasGuestText,
+                hasLoginForm,
+                hasAuthCookie,
+                hasAuthStorage
+              }
+            }));
+            ${hasAppliedLinkRef.current ? `
+              if (isLoggedIn) {
                 window.ReactNativeWebView?.postMessage(JSON.stringify({type:'LOGIN_SUCCESS'}));
               }
-            } catch(e){
-              console.error('[Auth] Check error:', e);
-            }
-            true;
-          })();
-        `);
-      }, 2500);
+            ` : ''}
+            return true;
+          } catch(e){
+            console.error('[Auth] Check error:', e);
+            return false;
+          }
+        })();
+      `;
+      setTimeout(() => {
+        ref.current?.injectJavaScript(loginCheckScript);
+      }, loginCheckDelay);
     }
-  };
-
-  const handleResetOnboarding = () => {
-    Alert.alert(
-      'Reset Onboarding',
-      'This will clear your onboarding progress and restart the app. Continue?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            await clearOnboarding();
-            console.log('🔄 Onboarding reset');
-            router.replace('/');
-          },
-        },
-      ]
-    );
   };
 
   return (
@@ -233,8 +607,8 @@ export default function ProfileTab() {
         onMessage={handleMessage}
       />
       
-      {showPasteButton && (
-        <View style={styles.helperBanner}>
+      {showHelper && (
+        <View style={[styles.helperBanner, { top: helperOffset }]}> 
           <Link2 size={20} color={Colors.primary} style={styles.icon} />
           <View style={styles.textContainer}>
             <Text style={styles.bannerTitle}>Got the sign-in link?</Text>
@@ -255,26 +629,25 @@ export default function ProfileTab() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={styles.dismissButton}
-              onPress={() => setShowPasteButton(false)}
+              onPress={() => {
+                bannerDismissedRef.current = true;
+                clearBannerTimer();
+                setShowHelper(false);
+                setHelperOffset(DEFAULT_HELPER_TOP);
+              }}
             >
               <Text style={styles.dismissButtonText}>×</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
-      
+
       {showSuccess && (
         <View style={styles.successBanner}>
           <Text style={styles.successText}>✓ Signed in successfully</Text>
         </View>
       )}
       
-      <TouchableOpacity 
-        style={styles.resetButton}
-        onPress={handleResetOnboarding}
-      >
-        <RotateCcw size={24} color="#FFFFFF" />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -285,9 +658,10 @@ const styles = StyleSheet.create({
   },
   helperBanner: {
     position: 'absolute',
-    top: 60,
     left: 16,
     right: 16,
+    alignSelf: 'center',
+    maxWidth: 340,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
@@ -370,21 +744,5 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700' as const,
-  },
-  resetButton: {
-    position: 'absolute',
-    bottom: 100,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
 });

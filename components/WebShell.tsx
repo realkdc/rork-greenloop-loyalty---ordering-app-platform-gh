@@ -254,16 +254,299 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     window.__ghMagicLinkCooldown = 0;
   }
 
-  const MAGIC_TEXT_REGEX = /link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you/i;
+  const MAGIC_TEXT_REGEX = /(?:the\s*)?link\s+has\s+been\s+sent|check\s+(?:your\s+)?email|check\s+mail|email\s+sent|has\s+been\s+sent\s+to\s+.+@/i;
+  const MAGIC_CONFIRM_SELECTORS = [
+    '.ec-notification',
+    '.ec-notice',
+    '.ec-alert',
+    '.ec-info-block',
+    '.ec-store__notice',
+    '.ec-popup__msg',
+    '.notification',
+    '.alert',
+    '.message',
+    '.toast',
+    '.snackbar',
+    '.ins-notification',
+    '[role="alert"]',
+    '[data-testid="magic-link-confirmation"]'
+  ];
+
+  function ensureMagicState(){
+    let state = window.__ghMagicLinkState;
+    if (!state || typeof state !== 'object'){
+      state = {};
+    }
+    if (typeof state.suppressed === 'undefined') state.suppressed = false;
+    if (typeof state.lastVisible === 'undefined') state.lastVisible = false;
+    if (typeof state.lastRect === 'undefined') state.lastRect = null;
+    if (typeof state.monitorTimer === 'undefined') state.monitorTimer = null;
+    if (typeof state.lastRequestTs === 'undefined') state.lastRequestTs = 0;
+    window.__ghMagicLinkState = state;
+    return state;
+  }
+
+  function postDebug(label, data){
+    try{
+      const payload = { type:'AUTH_DEBUG', scope:'web', tab:TAB_KEY, label, data };
+      window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+    }catch(err){
+      console.log('[AuthDebug] postDebug error', err);
+    }
+  }
+
+  postDebug('boot', { location: window.location.href });
+
+  function isElementVisible(el){
+    if (!el) return false;
+    if (typeof el.getBoundingClientRect !== 'function') return false;
+    const rect = el.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 && rect.top >= rect.bottom) return false;
+    try{
+      const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (style){
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0){
+          return false;
+        }
+      }
+    }catch(e){}
+    return true;
+  }
+
+  function serializeRect(rect){
+    if (!rect) return null;
+    return {
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      height: rect.height,
+      width: rect.width
+    };
+  }
+
+  function findMagicElement(){
+    try{
+      for (const selector of MAGIC_CONFIRM_SELECTORS){
+        const nodes = document.querySelectorAll(selector);
+        for (const node of nodes){
+          if (!node) continue;
+          const text = (node.innerText || '').trim();
+          if (!text || text.length > 400) continue;
+          if (MAGIC_TEXT_REGEX.test(text)) return node;
+        }
+      }
+
+      const candidates = document.body ? document.body.querySelectorAll('div,section,article,form,main,aside,p') : [];
+      for (const node of candidates){
+        if (!node) continue;
+        const text = (node.innerText || '').trim();
+        if (!text || text.length > 400) continue;
+        if (MAGIC_TEXT_REGEX.test(text)) return node;
+      }
+    }catch(e){}
+    return null;
+  }
+
+  function emitMagicVisibility(force){
+    const state = ensureMagicState();
+    if (state.suppressed) {
+      if (state.lastVisible || force) {
+        window.ReactNativeWebView?.postMessage(JSON.stringify({
+          type:'MAGIC_CONFIRMATION_VISIBILITY',
+          visible:false
+        }));
+      }
+      state.lastVisible = false;
+      state.lastRect = null;
+      return false;
+    }
+    const element = findMagicElement();
+    const visible = !!element && isElementVisible(element);
+    if (visible){
+      const rect = serializeRect(element.getBoundingClientRect());
+      const previousRect = state.lastRect;
+      state.lastRect = rect;
+      if (force || !state.lastVisible){
+        window.ReactNativeWebView?.postMessage(JSON.stringify({
+          type:'MAGIC_CONFIRMATION_VISIBILITY',
+          visible:true,
+          rect
+        }));
+      } else if (state.lastVisible && rect && previousRect){
+        const delta = Math.abs((rect.top ?? 0) - (previousRect.top ?? 0));
+        if (delta > 2){
+          window.ReactNativeWebView?.postMessage(JSON.stringify({
+            type:'MAGIC_CONFIRMATION_VISIBILITY',
+            visible:true,
+            rect
+          }));
+        }
+      }
+    } else if (state.lastVisible || force){
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        type:'MAGIC_CONFIRMATION_VISIBILITY',
+        visible:false
+      }));
+    }
+    if (!visible){
+      state.lastRect = null;
+    }
+    state.lastVisible = visible;
+    return visible;
+  }
+
+  function monitorMagicConfirmation(){
+    const state = ensureMagicState();
+    if (state.monitorTimer){
+      try{ clearTimeout(state.monitorTimer); }catch(e){}
+      state.monitorTimer = null;
+    }
+    let attempt = 0;
+    function tick(){
+      const visible = emitMagicVisibility(attempt === 0);
+      if (state.suppressed) {
+        state.monitorTimer = null;
+        return;
+      }
+      attempt += 1;
+      if (!visible && attempt > 12){
+        state.monitorTimer = null;
+        return;
+      }
+      state.monitorTimer = setTimeout(tick, visible ? 500 : 900);
+    }
+    tick();
+  }
+
+  const MAGIC_REQUEST_KEYWORDS = /get\s*sign-?in\s*link|send\s*sign-?in\s*link|magic\s*link|email\s*link|check\s*mail|sign\s*in\s*link/i;
+
+  function notifyMagicRequest(source){
+    const state = ensureMagicState();
+    const now = Date.now();
+    if (now - (state.lastRequestTs || 0) < 700){
+      console.log('[Auth] Magic link request ignored (cooldown) from', source);
+      postDebug('request_ignored', { source, now, last: state.lastRequestTs });
+      return;
+    }
+    state.lastRequestTs = now;
+    console.log('[Auth] Magic link request detected from', source);
+    postDebug('request', { source, now });
+    try{
+      window.ReactNativeWebView?.postMessage(JSON.stringify({type:'MAGIC_LINK_REQUESTED', source, timestamp: now}));
+    }catch(err){
+      console.log('[Auth] Error posting MAGIC_LINK_REQUESTED', err);
+      postDebug('request_post_error', { source, error: String(err) });
+    }
+    try{
+      if (typeof window.__ghStartMagicProbe === 'function'){
+        setTimeout(function(){
+          try{
+            window.__ghStartMagicProbe(source);
+          }catch(probeErr){
+            console.log('[Auth] Probe invocation error', probeErr);
+            postDebug('probe_invocation_error', { source, error: String(probeErr) });
+          }
+        }, 80);
+      }
+    }catch(err){
+      console.log('[Auth] Probe dispatch error', err);
+      postDebug('probe_dispatch_error', { source, error: String(err) });
+    }
+  }
+
+  function textFromElement(el){
+    if (!el) return '';
+    const parts = [];
+    const attrs = ['data-label','data-testid','data-test','aria-label','title','name','id'];
+    for (let i = 0; i < attrs.length; i++){
+      const val = el.getAttribute && el.getAttribute(attrs[i]);
+      if (val) parts.push(val);
+    }
+    if (typeof el.value === 'string') parts.push(el.value);
+    if (typeof el.innerText === 'string') parts.push(el.innerText);
+    if (typeof el.textContent === 'string') parts.push(el.textContent);
+    return parts.join(' ').toLowerCase();
+  }
+
+  function scanForMagicControls(){
+    try{
+      const controlSelectors = ['button','a','input[type="submit"]','input[type="button"]','[role="button"]'];
+      controlSelectors.forEach(function(sel){
+        const nodes = document.querySelectorAll(sel);
+        for (let i = 0; i < nodes.length; i++){
+          const node = nodes[i];
+          if (!node || node.__ghMagicHooked) continue;
+          const label = textFromElement(node);
+          if (!label) continue;
+          if (MAGIC_REQUEST_KEYWORDS.test(label)){
+            node.__ghMagicHooked = true;
+            console.log('[Auth] Hooked magic request control', sel, label);
+            postDebug('hook_control', { selector: sel, label, tag: node.tagName });
+            ['click','tap','touchend','pointerup','mouseup'].forEach(function(evt){
+              try{
+                node.addEventListener(evt, function(){
+                  notifyMagicRequest('control:'+evt);
+                }, { passive: true });
+              }catch(e){}
+            });
+          }
+        }
+      });
+      const forms = document.querySelectorAll('form');
+      for (let i = 0; i < forms.length; i++){
+        const form = forms[i];
+        if (!form || form.__ghMagicHooked) continue;
+        const formLabel = textFromElement(form);
+        if (formLabel && MAGIC_REQUEST_KEYWORDS.test(formLabel)){
+          form.__ghMagicHooked = true;
+          console.log('[Auth] Hooked magic request form');
+          postDebug('hook_form', { action: form.action, label: formLabel });
+          try{
+            form.addEventListener('submit', function(){
+              notifyMagicRequest('hooked-form');
+            }, { passive: true });
+          }catch(e){}
+        }
+      }
+    }catch(err){
+      console.log('[Auth] scanForMagicControls error', err);
+    }
+  }
+
+  const requestObserver = new MutationObserver(function(){
+    scanForMagicControls();
+  });
+
+  function startRequestWatcher(){
+    const target = document.body;
+    if (!target){
+      return;
+    }
+    scanForMagicControls();
+    requestObserver.observe(target, { childList: true, subtree: true });
+    setTimeout(scanForMagicControls, 1000);
+  }
+
   let lastMagicText = '';
 
   function triggerMagicLinkBanner(source){
+    if (ensureMagicState().suppressed){
+      console.log('[Auth] Magic link banner suppressed - skipping (' + source + ')');
+      return;
+    }
     const now = Date.now();
     if (now - window.__ghMagicLinkCooldown < 3000) return;
     window.__ghMagicLinkCooldown = now;
     console.log('[Auth] Email confirmation detected (' + source + ')');
+    monitorMagicConfirmation();
     setTimeout(() => {
-      window.ReactNativeWebView?.postMessage(JSON.stringify({type:'EMAIL_LINK_SENT'}));
+      const state = ensureMagicState();
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        type:'EMAIL_LINK_SENT',
+        confirmationVisible: !!state.lastVisible,
+        confirmationRect: state.lastRect
+      }));
     }, 600);
   }
 
@@ -289,10 +572,15 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     scanForMagic('initial');
   }
 
-  if (document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', startMagicWatcher, { once: true });
-  } else {
+  function onReady(){
     startMagicWatcher();
+    startRequestWatcher();
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', onReady, { once: true });
+  } else {
+    onReady();
   }
 
   let pendingNavTarget = null;
@@ -368,6 +656,14 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         const text = (el.textContent || '').toLowerCase();
         const href = (el.getAttribute('href') || '').toLowerCase();
         const onclick = (el.getAttribute('onclick') || '').toLowerCase();
+
+        if(
+          /get\\s*sign-?in\\s*link|send\\s*sign-?in\\s*link|open\\s*sign-?in\\s*link/i.test(text) ||
+          /sign-?in-?link|magic-?link/i.test(href) ||
+          /sign-?in|magic-?link/i.test(onclick)
+        ){
+          notifyMagicRequest('captured-click');
+        }
         
         if(/browse.*store|continue.*shopping|shop.*now/i.test(text) && window.location.href.includes('/cart')){
           e.preventDefault();
@@ -394,6 +690,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
       const form = e.target;
       if(form && form.action){
         const action = form.action.toLowerCase();
+        const formText = (form.textContent || '').toLowerCase();
         if(/cart|checkout/i.test(action)){
           scheduleNavIntent('cart');
           setTimeout(()=>checkNav(true), 250);
@@ -405,6 +702,12 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         if(/account/i.test(action) && !/orders/i.test(action)){
           scheduleNavIntent('profile');
           setTimeout(()=>checkNav(true), 250);
+        }
+        if(
+          /sign-?in|magic/i.test(action) ||
+          /get\\s*sign-?in\\s*link|send\\s*sign-?in\\s*link|magic\\s*link/i.test(formText)
+        ){
+          notifyMagicRequest('submit-handler');
         }
       }
     }catch(e){}

@@ -142,20 +142,170 @@ export const INJECTED_JS = `
 
   const post = (d) => window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify(d));
 
-  const MAGIC_TEXT_REGEX = /link.*has.*been.*sent|check.*your.*email|sent.*you.*link|email.*sent|we.*sent.*you|magic.*link.*sent/i;
+  const MAGIC_TEXT_REGEX = /(?:the\s*)?link\s+has\s+been\s+sent|check\s+(?:your\s+)?email|check\s+mail|email\s+sent|has\s+been\s+sent\s+to\s+.+@|magic\s+link\s+sent/i;
+  const MAGIC_CONFIRM_SELECTORS = [
+    '.ec-notification',
+    '.ec-notice',
+    '.ec-alert',
+    '.ec-info-block',
+    '.ec-store__notice',
+    '.ec-popup__msg',
+    '.notification',
+    '.alert',
+    '.message',
+    '.toast',
+    '.snackbar',
+    '.ins-notification',
+    '[role="alert"]',
+    '[data-testid="magic-link-confirmation"]'
+  ];
   let lastMagicText = '';
+
+  function ensureMagicState(){
+    let state = window.__ghMagicLinkState;
+    if (!state || typeof state !== 'object'){
+      state = {};
+    }
+    if (typeof state.suppressed === 'undefined') state.suppressed = false;
+    if (typeof state.lastVisible === 'undefined') state.lastVisible = false;
+    if (typeof state.lastRect === 'undefined') state.lastRect = null;
+    if (typeof state.monitorTimer === 'undefined') state.monitorTimer = null;
+    if (typeof state.lastRequestTs === 'undefined') state.lastRequestTs = 0;
+    window.__ghMagicLinkState = state;
+    return state;
+  }
+
+  function isElementVisible(el){
+    if (!el) return false;
+    if (typeof el.getBoundingClientRect !== 'function') return false;
+    const rect = el.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0 || rect.bottom <= 0 && rect.top >= rect.bottom) return false;
+    try{
+      const style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (style){
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0){
+          return false;
+        }
+      }
+    }catch(e){}
+    return true;
+  }
+
+  function serializeRect(rect){
+    if (!rect) return null;
+    return {
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      height: rect.height,
+      width: rect.width
+    };
+  }
+
+  function findMagicElement(){
+    try{
+      for (const selector of MAGIC_CONFIRM_SELECTORS){
+        const nodes = document.querySelectorAll(selector);
+        for (const node of nodes){
+          if (!node) continue;
+          const text = (node.innerText || '').trim();
+          if (!text || text.length > 400) continue;
+          if (MAGIC_TEXT_REGEX.test(text)) return node;
+        }
+      }
+      const candidates = document.body ? document.body.querySelectorAll('div,section,article,form,main,aside,p') : [];
+      for (const node of candidates){
+        if (!node) continue;
+        const text = (node.innerText || '').trim();
+        if (!text || text.length > 400) continue;
+        if (MAGIC_TEXT_REGEX.test(text)) return node;
+      }
+    }catch(e){}
+    return null;
+  }
+
+  function emitMagicVisibility(force){
+    const state = ensureMagicState();
+    if (state.suppressed) {
+      if (state.lastVisible || force) {
+        post({ type:'MAGIC_CONFIRMATION_VISIBILITY', visible:false });
+      }
+      state.lastVisible = false;
+      state.lastRect = null;
+      return false;
+    }
+    const element = findMagicElement();
+    const visible = !!element && isElementVisible(element);
+    if (visible){
+      const rect = serializeRect(element.getBoundingClientRect());
+      const previousRect = state.lastRect;
+      state.lastRect = rect;
+      if (force || !state.lastVisible){
+        post({ type:'MAGIC_CONFIRMATION_VISIBILITY', visible:true, rect });
+      } else if (state.lastVisible && rect && previousRect){
+        const delta = Math.abs((rect.top ?? 0) - (previousRect.top ?? 0));
+        if (delta > 2){
+          post({ type:'MAGIC_CONFIRMATION_VISIBILITY', visible:true, rect });
+        }
+      }
+    } else if (state.lastVisible || force){
+      post({ type:'MAGIC_CONFIRMATION_VISIBILITY', visible:false });
+    }
+    if (!visible){
+      state.lastRect = null;
+    }
+    state.lastVisible = visible;
+    return visible;
+  }
+
+  function monitorMagicConfirmation(){
+    const state = ensureMagicState();
+    if (state.monitorTimer){
+      try{ clearTimeout(state.monitorTimer); }catch(e){}
+      state.monitorTimer = null;
+    }
+    let attempt = 0;
+    function tick(){
+      const visible = emitMagicVisibility(attempt === 0);
+      if (state.suppressed) {
+        state.monitorTimer = null;
+        return;
+      }
+      attempt += 1;
+      if (!visible && attempt > 12){
+        state.monitorTimer = null;
+        return;
+      }
+      state.monitorTimer = setTimeout(tick, visible ? 500 : 900);
+    }
+    tick();
+  }
 
   if (typeof window.__ghMagicLinkCooldown === 'undefined') {
     window.__ghMagicLinkCooldown = 0;
   }
   function handleMagicLinkDetected(source) {
+    const state = ensureMagicState();
+    if (state.suppressed) {
+      console.log('[Auth] Magic link detection suppressed - skipping (' + source + ')');
+      return;
+    }
     const now = Date.now();
     if (now - window.__ghMagicLinkCooldown < 3000) {
       return;
     }
     window.__ghMagicLinkCooldown = now;
     console.log('[Auth] Magic link email detected (' + source + ')');
-    post({ type: 'EMAIL_LINK_SENT' });
+    monitorMagicConfirmation();
+    setTimeout(() => {
+      const nextState = ensureMagicState();
+      post({ 
+        type: 'EMAIL_LINK_SENT',
+        confirmationVisible: !!nextState.lastVisible,
+        confirmationRect: nextState.lastRect
+      });
+    }, 600);
   }
 
   function scanForMagic(source) {
