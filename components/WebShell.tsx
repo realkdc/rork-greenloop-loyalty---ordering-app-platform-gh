@@ -453,6 +453,10 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
         console.log(`[WebShell:${tabKey}] 📨 Parsed message:`, msg);
         
         if (msg.type === 'CART_COUNT' || msg.type === 'CART') {
+          if (!isActiveRef.current) {
+            console.log(`[WebShell:${tabKey}] ⏭️ Ignoring CART_COUNT while tab inactive`);
+            return;
+          }
           const count = Number(msg.value ?? msg.count ?? 0);
           const normalized = isFinite(count) ? Math.max(0, Math.min(999, count)) : 0;
           console.log(`[WebShell:${tabKey}] 📊 CART COUNT UPDATE - value:`, msg.value, 'count:', msg.count, 'normalized:', normalized, 'calling setCartCount now!');

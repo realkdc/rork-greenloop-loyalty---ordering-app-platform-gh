@@ -1,4 +1,3 @@
-/* eslint-disable @rork/linters/expo-router-unnecessary-tabs */
 import { Tabs } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
@@ -33,7 +32,7 @@ const TAB_LABELS: Record<string, string> = {
 const TAB_URLS: Record<string, string> = {
   home: Store.HOME,
   search: Store.SEARCH,
-  cart: "https://greenhauscc.com/products/cart",
+  cart: Store.CART,
   orders: Store.ORDERS,
   profile: Store.PROFILE,
 };

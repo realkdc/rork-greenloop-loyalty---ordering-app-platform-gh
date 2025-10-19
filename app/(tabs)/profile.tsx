@@ -1,5 +1,3 @@
-/* eslint-disable @rork/linters/expo-router-enforce-safe-area-usage */
-/* eslint-disable @rork/linters/expo-router-no-unregistered-tabs-files */
 import React, { useRef, useState, useCallback } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, Linking } from "react-native";
 import type { WebView } from "react-native-webview";

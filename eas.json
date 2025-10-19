@@ -7,7 +7,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
-        "buildType": "simulator"
+        "simulator": true
       },
       "android": {
         "buildType": "apk"
@@ -23,9 +23,9 @@
       }
     },
     "production": {
+      "distribution": "store",
       "ios": {
-        "resourceClass": "medium",
-        "simulator": false
+        "resourceClass": "medium"
       },
       "android": {
         "resourceClass": "medium"
@@ -34,10 +34,6 @@
   },
   "submit": {
     "production": {
-      "ios": {
-        "appleId": null,
-        "ascAppId": null
-      },
       "android": {
         "track": "internal"
       }
