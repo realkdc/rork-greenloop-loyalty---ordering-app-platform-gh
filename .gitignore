@@ -2,9 +2,11 @@
 
 # dependencies
 node_modules/
+node_modules/.cache/
 
-# Expo
+# Expo / Web output
 .expo/
+.expo-shared/
 dist/
 web-build/
 expo-env.d.ts
@@ -16,6 +18,12 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+ios/Pods/
+ios/build/
+ios/DerivedData/
+android/.gradle/
+android/build/
+android/app/build/
 
 # Metro
 .metro-health-check*
@@ -24,10 +32,16 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
 
-# macOS
+# Misc artifacts
 .DS_Store
 *.pem
+*.mp4
+*.mov
+*.zip
+*.ipa
+*.apk
 
 # local build artifacts
 build/
