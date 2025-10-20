@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
+import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, Component, type ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -11,9 +13,20 @@ import { WebViewProvider } from "@/contexts/WebViewContext";
 import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
 import { DebugMenu } from "@/lib/debugMenu";
 import { trpc, trpcClient } from "@/lib/trpc";
+import { registerForPushNotificationsAsync } from "../src/notifications/registerPush";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
+
+const PUSH_PROMPT_STORAGE_KEY = "askedForPush";
 
 const queryClient = new QueryClient();
 
@@ -141,6 +154,25 @@ export default function RootLayout() {
       }
     };
     hideSplash();
+  }, []);
+
+  useEffect(() => {
+    const maybeRegisterForPush = async () => {
+      try {
+        const asked = await AsyncStorage.getItem(PUSH_PROMPT_STORAGE_KEY);
+        if (!asked) {
+          try {
+            await registerForPushNotificationsAsync();
+          } finally {
+            await AsyncStorage.setItem(PUSH_PROMPT_STORAGE_KEY, "true");
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to register for push notifications", error);
+      }
+    };
+
+    void maybeRegisterForPush();
   }, []);
 
   return (

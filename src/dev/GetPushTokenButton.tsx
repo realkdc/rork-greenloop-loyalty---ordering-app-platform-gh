@@ -1,32 +1,122 @@
-import React from "react";
-import { Alert, Button, Platform } from "react-native";
-import * as Notifications from "expo-notifications";
+import { useEffect, useState } from "react";
+import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import Constants from "expo-constants";
+import * as Notifications from "expo-notifications";
+import { registerForPushNotificationsAsync } from "../notifications/registerPush";
 
-export default function GetPushTokenButton() {
-  const onPress = async () => {
+export const GetPushTokenButton = () => {
+  const [status, setStatus] = useState<Notifications.PermissionStatus>(Notifications.PermissionStatus.UNDETERMINED);
+  const [token, setToken] = useState<string | undefined>();
+  const [isRequesting, setIsRequesting] = useState(false);
+
+  useEffect(() => {
+    const loadPermission = async () => {
+      const permissions = await Notifications.getPermissionsAsync();
+      setStatus(permissions.status);
+    };
+
+    void loadPermission();
+  }, []);
+
+  const handleEnableNotifications = async () => {
+    setIsRequesting(true);
     try {
-      if (Platform.OS === "ios" && !Constants.isDevice) {
-        Alert.alert("Simulator can’t receive pushes", "Install on a real iPhone or TestFlight.");
-        return;
+      const result = await registerForPushNotificationsAsync();
+      setStatus(result.status);
+
+      if (result.token) {
+        console.log("Expo push token:", result.token);
+        setToken(result.token);
+      } else {
+        setToken(undefined);
       }
-      const perm = await Notifications.requestPermissionsAsync();
-      if (perm.status !== "granted") {
-        Alert.alert("Push not allowed", "Enable notifications in Settings.");
-        return;
-      }
-      const { data } = await Notifications.getExpoPushTokenAsync({
-        projectId: Constants?.expoConfig?.extra?.eas?.projectId
-          ?? Constants?.easConfig?.projectId
-      });
-      await Clipboard.setStringAsync(data);
-      Alert.alert("Expo push token (copied)", data);
-      console.log("[PUSH] Expo token:", data);
-    } catch (e: any) {
-      console.log("[PUSH] token error:", e?.message ?? e);
-      Alert.alert("Token error", String(e?.message ?? e));
+    } finally {
+      setIsRequesting(false);
     }
   };
-  return <Button title="Get Push Token" onPress={onPress} />;
-}
+
+  const handleCopyToken = async () => {
+    if (!token) {
+      return;
+    }
+
+    await Clipboard.setStringAsync(token);
+    Alert.alert("Copied", "Push token copied to clipboard.");
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.label}>Permission status: {status}</Text>
+
+      <TouchableOpacity
+        style={[styles.button, isRequesting && styles.buttonDisabled]}
+        disabled={isRequesting}
+        onPress={handleEnableNotifications}
+      >
+        <Text style={styles.buttonText}>{isRequesting ? "Requesting..." : "Enable Notifications"}</Text>
+      </TouchableOpacity>
+
+      {token ? (
+        <View style={styles.tokenContainer}>
+          <Text style={styles.tokenLabel}>Expo push token</Text>
+          <Text selectable style={styles.tokenValue}>
+            {token}
+          </Text>
+          <TouchableOpacity style={styles.secondaryButton} onPress={handleCopyToken}>
+            <Text style={styles.secondaryButtonText}>Copy token</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 16,
+    padding: 24,
+  },
+  label: {
+    fontSize: 16,
+  },
+  button: {
+    alignItems: "center",
+    backgroundColor: "#0F4C3A",
+    borderRadius: 8,
+    paddingVertical: 12,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  tokenContainer: {
+    gap: 12,
+  },
+  tokenLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    textTransform: "uppercase",
+  },
+  tokenValue: {
+    fontFamily: "Courier",
+    fontSize: 12,
+  },
+  secondaryButton: {
+    alignItems: "center",
+    borderColor: "#0F4C3A",
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 10,
+  },
+  secondaryButtonText: {
+    color: "#0F4C3A",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+});
+
+export default GetPushTokenButton;

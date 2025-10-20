@@ -16,16 +16,17 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhaus.customer",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
         "NSLocationAlwaysUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
         "NSLocationWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
+        "NSUserTrackingUsageDescription": "This allows us to send you relevant notifications.",
         "UIBackgroundModes": [
           "location",
-          "location"
+          "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       }
