@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Stack, useRouter } from "expo-router";
 import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
@@ -7,13 +6,13 @@ import React, { useEffect, Component, type ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { AuthProvider } from "@/contexts/AuthContext";
-import { AppProvider } from "@/contexts/AppContext";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { AppProvider, useApp } from "@/contexts/AppContext";
 import { WebViewProvider } from "@/contexts/WebViewContext";
 import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
 import { DebugMenu } from "@/lib/debugMenu";
 import { trpc, trpcClient } from "@/lib/trpc";
-import { registerForPushNotificationsAsync } from "../src/notifications/registerPush";
+import registerPushToken from "@/src/lib/push/registerPushToken";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -25,8 +24,6 @@ Notifications.setNotificationHandler({
     shouldSetBadge: false,
   }),
 });
-
-const PUSH_PROMPT_STORAGE_KEY = "askedForPush";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +40,7 @@ function RootLayoutNav() {
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ title: "Admin" }} />
       <Stack.Screen name="promos" options={{ title: "Promotions" }} />
+      <Stack.Screen name="devpush" options={{ title: "Developer Push Test" }} />
       <Stack.Screen 
         name="qr-scanner" 
         options={{ 
@@ -144,6 +142,27 @@ function DeepLinkHandler() {
   return null;
 }
 
+function PushTokenRegistrar() {
+  const { user } = useAuth();
+  const { selectedStoreId } = useApp();
+  const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
+
+  useEffect(() => {
+    if (!user?.id || !selectedStoreId) {
+      return;
+    }
+
+    void registerPushToken({
+      userId: user.id,
+      storeId: selectedStoreId,
+      backendBaseUrl,
+      env: "prod",
+    });
+  }, [backendBaseUrl, selectedStoreId, user?.id]);
+
+  return null;
+}
+
 export default function RootLayout() {
   useEffect(() => {
     const hideSplash = async () => {
@@ -156,25 +175,6 @@ export default function RootLayout() {
     hideSplash();
   }, []);
 
-  useEffect(() => {
-    const maybeRegisterForPush = async () => {
-      try {
-        const asked = await AsyncStorage.getItem(PUSH_PROMPT_STORAGE_KEY);
-        if (!asked) {
-          try {
-            await registerForPushNotificationsAsync();
-          } finally {
-            await AsyncStorage.setItem(PUSH_PROMPT_STORAGE_KEY, "true");
-          }
-        }
-      } catch (error) {
-        console.warn("Failed to register for push notifications", error);
-      }
-    };
-
-    void maybeRegisterForPush();
-  }, []);
-
   return (
     <ErrorBoundary>
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -185,6 +185,7 @@ export default function RootLayout() {
                 <MagicLinkProvider>
                   <WebViewProvider>
                     <GestureHandlerRootView style={{ flex: 1 }}>
+                      <PushTokenRegistrar />
                       <DeepLinkHandler />
                       <RootLayoutNav />
                       <DebugMenu />
