@@ -30,12 +30,13 @@ export default function HomeTab() {
   const [isModalOpen, setModalOpen] = useState(false);
   const dismissedForSession = useRef(false);
   const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const promoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
 
-  const activeStoreId = useMemo<"cookeville" | "crossville">(() => {
+  const activeStoreId = useMemo(() => {
     if (storeSlug) return storeSlug;
-    console.warn("[Promo] selectedStoreId missing; falling back to crossville");
-    return "crossville";
+    console.warn("[Promo] selectedStoreId missing; falling back to default store");
+    return "store_123";
   }, [storeSlug]);
 
   const openPromoUrl = useCallback((url: string) => {
@@ -71,8 +72,21 @@ export default function HomeTab() {
 
   useEffect(() => {
     if (promos.length > 0 && !dismissedForSession.current) {
-      setModalOpen(true);
+      if (promoTimerRef.current) {
+        clearTimeout(promoTimerRef.current);
+      }
+      promoTimerRef.current = setTimeout(() => {
+        setModalOpen(true);
+        promoTimerRef.current = null;
+      }, 1200);
     }
+
+    return () => {
+      if (promoTimerRef.current) {
+        clearTimeout(promoTimerRef.current);
+        promoTimerRef.current = null;
+      }
+    };
   }, [promos]);
 
   useEffect(() => {
@@ -101,6 +115,10 @@ export default function HomeTab() {
   }, [isModalOpen, promos]);
 
   useEffect(() => () => {
+    if (promoTimerRef.current) {
+      clearTimeout(promoTimerRef.current);
+      promoTimerRef.current = null;
+    }
     if (cycleTimerRef.current) {
       clearInterval(cycleTimerRef.current);
       cycleTimerRef.current = null;
@@ -119,6 +137,10 @@ export default function HomeTab() {
 
   const closeModal = useCallback(() => {
     dismissedForSession.current = true;
+    if (promoTimerRef.current) {
+      clearTimeout(promoTimerRef.current);
+      promoTimerRef.current = null;
+    }
     setModalOpen(false);
   }, []);
 
