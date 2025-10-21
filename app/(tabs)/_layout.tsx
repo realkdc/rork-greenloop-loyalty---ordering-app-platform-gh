@@ -1,5 +1,5 @@
-import { Link, Tabs } from "expo-router";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { Tabs } from "expo-router";
+import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
@@ -46,14 +46,15 @@ export default function Layout() {
   console.log('[TabLayout] 🔢 Badge value:', cartCount > 99 ? '99+' : cartCount);
 
   return (
-    <Tabs 
-      screenOptions={{ 
+    <Tabs
+      screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: "#22c55e",
         tabBarInactiveTintColor: "#9ca3af",
         tabBarStyle: {
           overflow: "visible",
         },
+        freezeOnBlur: false,
       }}
     >
       {(["home", "search", "cart", "orders", "profile"] as const).map((name) => {
@@ -70,17 +71,7 @@ export default function Layout() {
             name={name}
             options={{
               title: TAB_LABELS[name] || name,
-              headerShown: isHome ? __DEV__ : false,
-              headerRight:
-                isHome && __DEV__
-                  ? () => (
-                      <Link href="/dev" asChild>
-                        <Pressable hitSlop={8} style={styles.devLink}>
-                          <Text style={styles.devLinkText}>Dev</Text>
-                        </Pressable>
-                      </Link>
-                    )
-                  : undefined,
+              headerShown: false,
               tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => {
                 const iconName = focused ? iconConfig.filled : iconConfig.outline;
                 return (
@@ -206,13 +197,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700" as const,
     includeFontPadding: false,
-  },
-  devLink: {
-    marginRight: 12,
-  },
-  devLinkText: {
-    color: "#2563eb",
-    fontSize: 15,
-    fontWeight: "600" as const,
   },
 });

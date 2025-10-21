@@ -1,7 +1,8 @@
-import { forwardRef, useCallback, useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Platform, AppState } from 'react-native';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, Platform, AppState } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { WebView, WebViewProps } from 'react-native-webview';
+import { WebView } from 'react-native-webview';
+import type { WebViewProps } from 'react-native-webview';
 import { useApp } from '@/contexts/AppContext';
 import { useRouter } from 'expo-router';
 
@@ -254,6 +255,111 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     window.__ghMagicLinkCooldown = 0;
   }
 
+  const GH_SHADOW_ROOTS = [];
+  const GH_SHADOW_ROOT_SET = new Set();
+  const GH_OBSERVED_TARGETS = new Set();
+  let magicObserver = null;
+  let requestObserver = null;
+
+  function registerShadowRoot(root){
+    if (!root || GH_SHADOW_ROOT_SET.has(root)) return;
+    GH_SHADOW_ROOT_SET.add(root);
+    GH_SHADOW_ROOTS.push(root);
+    discoverShadowRootsFrom(root);
+    ensureObservers();
+  }
+
+  function discoverShadowRootsFrom(origin){
+    if (!origin || typeof origin.querySelectorAll !== 'function') return;
+    try {
+      const nodes = origin.querySelectorAll('*');
+      for (let i = 0; i < nodes.length; i++) {
+        const el = nodes[i];
+        if (el && el.shadowRoot) {
+          registerShadowRoot(el.shadowRoot);
+        }
+      }
+    } catch (err) {}
+  }
+
+  const originalAttachShadow = Element.prototype.attachShadow;
+  Element.prototype.attachShadow = function(init){
+    const shadow = originalAttachShadow.call(this, init);
+    if (!init || init.mode === 'open') {
+      registerShadowRoot(shadow);
+    }
+    return shadow;
+  };
+
+  function getSearchRoots(){
+    const roots = [document];
+    for (let i = 0; i < GH_SHADOW_ROOTS.length; i++) {
+      const root = GH_SHADOW_ROOTS[i];
+      if (root && typeof root.querySelectorAll === 'function') {
+        roots.push(root);
+      }
+    }
+    return roots;
+  }
+
+  function querySelectorAllDeep(selector){
+    const matches = [];
+    const seen = new Set();
+    const roots = getSearchRoots();
+    for (let r = 0; r < roots.length; r++) {
+      const root = roots[r];
+      if (!root || typeof root.querySelectorAll !== 'function') continue;
+      let nodes;
+      try {
+        nodes = root.querySelectorAll(selector);
+      } catch (err) {
+        continue;
+      }
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        if (!seen.has(node)) {
+          seen.add(node);
+          matches.push(node);
+        }
+      }
+    }
+    return matches;
+  }
+
+  function getCombinedText(){
+    let text = '';
+    const roots = getSearchRoots();
+    for (let r = 0; r < roots.length; r++) {
+      const root = roots[r];
+      if (!root) continue;
+      try {
+        if (root === document) {
+          const source = document.body || document.documentElement;
+          if (source && typeof source.innerText === 'string') {
+            text += ' ' + source.innerText;
+          }
+        } else if ((root.nodeType === 11 || root.nodeType === 9) && typeof root.textContent === 'string') {
+          text += ' ' + root.textContent;
+        } else if (typeof root.textContent === 'string') {
+          text += ' ' + root.textContent;
+        }
+      } catch (err) {}
+    }
+    return text;
+  }
+
+  function ensureObservers(){
+    if (!magicObserver || !requestObserver) return;
+    const roots = getSearchRoots();
+    for (let r = 0; r < roots.length; r++) {
+      const root = roots[r];
+      if (!root || GH_OBSERVED_TARGETS.has(root)) continue;
+      GH_OBSERVED_TARGETS.add(root);
+      try { requestObserver.observe(root, { childList: true, subtree: true }); } catch (err) {}
+      try { magicObserver.observe(root, { childList: true, subtree: true, characterData: true }); } catch (err) {}
+    }
+  }
+
   const MAGIC_TEXT_REGEX = /(?:the\s*)?link\s+has\s+been\s+sent|check\s+(?:your\s+)?email|check\s+mail|email\s+sent|has\s+been\s+sent\s+to\s+.+@/i;
   const MAGIC_CONFIRM_SELECTORS = [
     '.ec-notification',
@@ -328,7 +434,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
   function findMagicElement(){
     try{
       for (const selector of MAGIC_CONFIRM_SELECTORS){
-        const nodes = document.querySelectorAll(selector);
+        const nodes = querySelectorAllDeep(selector);
         for (const node of nodes){
           if (!node) continue;
           const text = (node.innerText || '').trim();
@@ -337,12 +443,23 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         }
       }
 
-      const candidates = document.body ? document.body.querySelectorAll('div,section,article,form,main,aside,p') : [];
-      for (const node of candidates){
-        if (!node) continue;
-        const text = (node.innerText || '').trim();
-        if (!text || text.length > 400) continue;
-        if (MAGIC_TEXT_REGEX.test(text)) return node;
+      const roots = getSearchRoots();
+      for (let r = 0; r < roots.length; r++){
+        const root = roots[r];
+        if (!root || typeof root.querySelectorAll !== 'function') continue;
+        let candidates;
+        try {
+          candidates = root.querySelectorAll('div,section,article,form,main,aside,p');
+        } catch (err) {
+          continue;
+        }
+        for (let i = 0; i < candidates.length; i++) {
+          const node = candidates[i];
+          if (!node) continue;
+          const text = (node.innerText || '').trim();
+          if (!text || text.length > 400) continue;
+          if (MAGIC_TEXT_REGEX.test(text)) return node;
+        }
       }
     }catch(e){}
     return null;
@@ -424,7 +541,9 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
   function notifyMagicRequest(source){
     const state = ensureMagicState();
     const now = Date.now();
-    if (now - (state.lastRequestTs || 0) < 700){
+    const isFormSubmit = typeof source === 'string' && source.indexOf('submit') !== -1;
+    const cooldown = isFormSubmit ? 150 : 700;
+    if (now - (state.lastRequestTs || 0) < cooldown){
       console.log('[Auth] Magic link request ignored (cooldown) from', source);
       postDebug('request_ignored', { source, now, last: state.lastRequestTs });
       return;
@@ -455,6 +574,192 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     }
   }
 
+  // New: Detect "Get sign-in link" button clicks
+  function notifyGetLinkClick(source){
+    const state = ensureMagicState();
+    const now = Date.now();
+    if (now - (state.lastRequestTs || 0) < 700){
+      console.log('[Auth] Get link click ignored (cooldown) from', source);
+      return;
+    }
+    state.lastRequestTs = now;
+    console.log('[Auth] Get sign-in link button clicked from', source);
+    try{
+      window.ReactNativeWebView?.postMessage(JSON.stringify({type:'gh:getlink_clicked', source, timestamp: now}));
+    }catch(err){
+      console.log('[Auth] Error posting gh:getlink_clicked', err);
+    }
+  }
+
+  const MAGIC_ENDPOINT_PATTERNS = [
+    'send-login-link',
+    'magic-link',
+    'sign-in-link',
+    'signin-link',
+    'email-login',
+    'login/email',
+    'account/login'
+  ];
+
+  function looksLikeMagicEndpoint(url, body){
+    if (!url) return false;
+    const lowerUrl = String(url).toLowerCase();
+    for (let i = 0; i < MAGIC_ENDPOINT_PATTERNS.length; i++){
+      if (lowerUrl.indexOf(MAGIC_ENDPOINT_PATTERNS[i]) !== -1){
+        return true;
+      }
+    }
+    if (body && typeof body === 'string'){
+      const lowerBody = body.toLowerCase();
+      for (let i = 0; i < MAGIC_ENDPOINT_PATTERNS.length; i++){
+        if (lowerBody.indexOf(MAGIC_ENDPOINT_PATTERNS[i]) !== -1){
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function normalizeFetchInput(input){
+    if (!input) return { url: '', method: 'GET' };
+    if (typeof input === 'string'){
+      return { url: input, method: 'GET' };
+    }
+    try{
+      const req = input;
+      const url = typeof req.url === 'string' ? req.url : '';
+      const method = typeof req.method === 'string' ? req.method : 'GET';
+      return { url, method };
+    }catch(_){
+      return { url: '', method: 'GET' };
+    }
+  }
+
+  const MAGIC_MESSAGE_ORIGINS = [
+    'https://app.ecwid.com',
+    'https://my.ecwid.com',
+    'https://storefront.ecwid.com',
+    window.location.origin
+  ];
+  let magicMessageLogCount = 0;
+
+  window.addEventListener('message', function(event){
+    try {
+      const origin = event.origin || '';
+      if (!origin) return;
+      let matchesOrigin = false;
+      for (let i = 0; i < MAGIC_MESSAGE_ORIGINS.length; i++) {
+        const candidate = MAGIC_MESSAGE_ORIGINS[i];
+        if (candidate && origin.indexOf(candidate) !== -1) {
+          matchesOrigin = true;
+          break;
+        }
+      }
+      if (!matchesOrigin) return;
+
+      let payloadString = '';
+      const payload = event.data;
+      if (typeof payload === 'string') {
+        payloadString = payload;
+      } else if (payload && typeof payload === 'object') {
+        try {
+          payloadString = JSON.stringify(payload);
+        } catch(_) {}
+      }
+
+      if (!payloadString) return;
+      const normalized = payloadString.toLowerCase();
+      const looksLikeMagic = /magic/.test(normalized) || (normalized.includes('sign-in') && normalized.includes('link'));
+      if (!looksLikeMagic) return;
+
+      if (magicMessageLogCount < 4) {
+        magicMessageLogCount += 1;
+        postDebug('iframe_message', { origin, snippet: payloadString.slice(0, 160) });
+      }
+
+      notifyMagicRequest('postMessage');
+
+      if (/sent/.test(normalized) || /delivered/.test(normalized) || normalized.includes('email_sent')) {
+        triggerMagicLinkBanner('postMessage');
+      }
+    } catch(err) {
+      postDebug('iframe_message_error', { error: String(err) });
+    }
+  }, false);
+
+  try{
+    if (typeof window.fetch === 'function'){
+      const originalFetch = window.fetch;
+      window.fetch = function(input, init){
+        const { url, method } = normalizeFetchInput(input);
+        const body = init && typeof init.body === 'string' ? init.body : undefined;
+        const looksMagic = looksLikeMagicEndpoint(url, body);
+        if (looksMagic){
+          postDebug('fetch_hook_request', { url, method, bodySnippet: body ? body.slice(0, 120) : null });
+          notifyMagicRequest('fetch:' + method);
+        }
+        return originalFetch.apply(this, arguments).then(function(response){
+          try{
+            if (looksMagic && response && typeof response.status === 'number'){
+              postDebug('fetch_hook_response', { url, status: response.status, ok: response.ok });
+              if (response.ok){
+                triggerMagicLinkBanner('fetch');
+              }
+            }
+          }catch(err){
+            postDebug('fetch_hook_error', { url, error: String(err) });
+          }
+          return response;
+        }).catch(function(err){
+          if (looksMagic){
+            postDebug('fetch_hook_reject', { url, error: String(err) });
+          }
+          throw err;
+        });
+      };
+    }
+  }catch(err){
+    postDebug('fetch_hook_install_error', { error: String(err) });
+  }
+
+  try{
+    const XHR = window.XMLHttpRequest;
+    if (XHR && XHR.prototype){
+      const originalOpen = XHR.prototype.open;
+      const originalSend = XHR.prototype.send;
+
+      XHR.prototype.open = function(method, url){
+        try {
+          this.__ghMagicURL = url;
+          this.__ghMagicMethod = method;
+        } catch(_err) {}
+        return originalOpen.apply(this, arguments);
+      };
+
+      XHR.prototype.send = function(body){
+        const url = this.__ghMagicURL || '';
+        const method = this.__ghMagicMethod || 'GET';
+        const looksMagic = looksLikeMagicEndpoint(url, typeof body === 'string' ? body : undefined);
+        if (looksMagic && !this.__ghMagicHooked){
+          this.__ghMagicHooked = true;
+          postDebug('xhr_hook_request', { url, method });
+          notifyMagicRequest('xhr:' + method);
+          this.addEventListener('readystatechange', function(){
+            if (this.readyState === 4){
+              postDebug('xhr_hook_response', { url, status: this.status });
+              if (this.status >= 200 && this.status < 300){
+                triggerMagicLinkBanner('xhr');
+              }
+            }
+          });
+        }
+        return originalSend.apply(this, arguments);
+      };
+    }
+  }catch(err){
+    postDebug('xhr_hook_install_error', { error: String(err) });
+  }
+
   function textFromElement(el){
     if (!el) return '';
     const parts = [];
@@ -473,7 +778,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     try{
       const controlSelectors = ['button','a','input[type="submit"]','input[type="button"]','[role="button"]'];
       controlSelectors.forEach(function(sel){
-        const nodes = document.querySelectorAll(sel);
+        const nodes = querySelectorAllDeep(sel);
         for (let i = 0; i < nodes.length; i++){
           const node = nodes[i];
           if (!node || node.__ghMagicHooked) continue;
@@ -493,7 +798,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
           }
         }
       });
-      const forms = document.querySelectorAll('form');
+      const forms = querySelectorAllDeep('form');
       for (let i = 0; i < forms.length; i++){
         const form = forms[i];
         if (!form || form.__ghMagicHooked) continue;
@@ -514,18 +819,72 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     }
   }
 
-  const requestObserver = new MutationObserver(function(){
+  // New: Scan for "Get sign-in link" buttons specifically
+  function scanForGetLinkButtons(){
+    try{
+      const getLinkSelectors = [
+        'button[type="submit"]',
+        '#send-login-link',
+        'button:contains("Sign-In Link")',
+        'button:contains("Send Link")',
+        'button:contains("Email me a login link")',
+        'a:contains("Get sign-in link")',
+        'button:contains("Get sign-in link")',
+        '[data-testid*="sign-in-link"]',
+        '[data-testid*="send-link"]'
+      ];
+      
+      // Also check for text content matches
+      const getLinkKeywords = /get\s*sign-?in\s*link|send\s*sign-?in\s*link|email\s*me\s*a\s*login\s*link|sign-?in\s*link/i;
+      
+      const allButtons = querySelectorAllDeep('button, a, input[type="submit"], [role="button"]');
+      for (let i = 0; i < allButtons.length; i++){
+        const button = allButtons[i];
+        if (!button || button.__ghGetLinkHooked) continue;
+        
+        const text = textFromElement(button);
+        const id = button.getAttribute('id') || '';
+        const testId = button.getAttribute('data-testid') || '';
+        
+        if (getLinkKeywords.test(text) || 
+            id.includes('send-login-link') || 
+            testId.includes('sign-in-link') || 
+            testId.includes('send-link')) {
+          
+          button.__ghGetLinkHooked = true;
+          console.log('[Auth] Hooked Get sign-in link button:', text, id, testId);
+          
+          ['click','tap','touchend','pointerup','mouseup'].forEach(function(evt){
+            try{
+              button.addEventListener(evt, function(){
+                notifyGetLinkClick('getlink-button:'+evt);
+              }, { passive: true });
+            }catch(e){}
+          });
+        }
+      }
+    }catch(err){
+      console.log('[Auth] scanForGetLinkButtons error', err);
+    }
+  }
+
+  requestObserver = new MutationObserver(function(){
     scanForMagicControls();
+    scanForGetLinkButtons();
   });
 
   function startRequestWatcher(){
     const target = document.body;
-    if (!target){
-      return;
+    if (target){
+      registerShadowRoot(target);
     }
     scanForMagicControls();
-    requestObserver.observe(target, { childList: true, subtree: true });
-    setTimeout(scanForMagicControls, 1000);
+    scanForGetLinkButtons();
+    ensureObservers();
+    setTimeout(() => {
+      scanForMagicControls();
+      scanForGetLinkButtons();
+    }, 1000);
   }
 
   let lastMagicText = '';
@@ -552,7 +911,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
 
   function scanForMagic(source){
     try {
-      const bodyText = document.body?.innerText || '';
+      const bodyText = getCombinedText();
       if (bodyText === lastMagicText) return;
       lastMagicText = bodyText;
       if (MAGIC_TEXT_REGEX.test(bodyText)) {
@@ -561,14 +920,17 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     } catch(_) {}
   }
 
-  const magicObserver = new MutationObserver(function(){
+  magicObserver = new MutationObserver(function(){
     scanForMagic('observer');
   });
 
   function startMagicWatcher(){
     const target = document.body;
-    if (!target) return;
-    magicObserver.observe(target, { subtree: true, childList: true, characterData: true });
+    if (!target) {
+      return;
+    }
+    registerShadowRoot(target);
+    ensureObservers();
     scanForMagic('initial');
   }
 
@@ -658,7 +1020,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         const onclick = (el.getAttribute('onclick') || '').toLowerCase();
 
         if(
-          /get\\s*sign-?in\\s*link|send\\s*sign-?in\\s*link|open\\s*sign-?in\\s*link/i.test(text) ||
+          /get\s*sign-?in\s*link|send\s*sign-?in\s*link|open\s*sign-?in\s*link/i.test(text) ||
           /sign-?in-?link|magic-?link/i.test(href) ||
           /sign-?in|magic-?link/i.test(onclick)
         ){
@@ -741,7 +1103,6 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
   ({ initialUrl, tabKey, ...props }, ref) => {
     const { setCartCount } = useApp();
     const router = useRouter();
-    const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const webviewRef = useRef<WebView>(null);
     const isActiveRef = useRef(false);
@@ -789,13 +1150,11 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
     const handleError = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
       console.error('WebView error:', nativeEvent);
-      setError(`Failed to load ${tabKey}`);
       setIsLoading(false);
-    }, [tabKey]);
+    }, []);
 
     const handleLoadStart = useCallback(() => {
       setIsLoading(true);
-      setError(null);
     }, []);
 
     const handleLoadEnd = useCallback(() => {
@@ -875,23 +1234,6 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
       }, [ref, tabKey])
     );
 
-    if (!initialUrl || initialUrl.trim() === '') {
-      return (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Invalid URL for {tabKey} tab</Text>
-        </View>
-      );
-    }
-
-    if (error) {
-      return (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Text style={styles.errorSubtext}>Pull down to retry</Text>
-        </View>
-      );
-    }
-
     return (
       <View style={styles.container}>
         <WebView
@@ -911,8 +1253,8 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           cacheEnabled
           incognito={false}
           setSupportMultipleWindows={false}
-          allowsBackForwardNavigationGestures={false}
-          pullToRefreshEnabled={false}
+          allowsBackForwardNavigationGestures
+          pullToRefreshEnabled={Platform.OS === 'android'}
           injectedJavaScriptBeforeContentLoaded={INJECTED_CSS}
           injectedJavaScript={`
             ${CART_COUNTER_SCRIPT}

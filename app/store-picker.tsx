@@ -4,12 +4,14 @@ import { useRouter } from 'expo-router';
 import { Store, MapPin, Clock, ChevronRight } from 'lucide-react-native';
 import colors from '@/constants/colors';
 import { StorageService } from '@/services/storage';
-import { getStoresByState } from '@/constants/stores';
+import { STORES } from '@/constants/stores';
 import type { Store as StoreType } from '@/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useActiveStoreId } from '@/src/hooks/useActiveStoreId';
 
 export default function StorePickerScreen() {
   const router = useRouter();
+  const { setStoreId } = useActiveStoreId();
   const [stores, setStores] = useState<StoreType[]>([]);
   const [selectedStore, setSelectedStore] = useState<StoreType | null>(null);
 
@@ -18,12 +20,9 @@ export default function StorePickerScreen() {
   }, []);
 
   const loadStores = async () => {
-    const onboarding = await StorageService.getOnboardingState();
-    if (onboarding?.state) {
-      const storeList = getStoresByState(onboarding.state);
-      console.log('Loaded stores for state:', onboarding.state, storeList.length);
-      setStores(storeList);
-    }
+    // Use the new store list directly
+    console.log('Loaded stores:', STORES.length);
+    setStores(STORES);
   };
 
   const handleStoreSelect = (store: StoreType) => {
@@ -36,6 +35,9 @@ export default function StorePickerScreen() {
       return;
     }
 
+    // Use the new hook to set the store ID
+    await setStoreId(selectedStore.id);
+
     const existing = await StorageService.getOnboardingState();
     await StorageService.saveOnboardingState({
       ageVerified: existing?.ageVerified || false,
@@ -46,7 +48,7 @@ export default function StorePickerScreen() {
     });
 
     console.log('Store selected, navigating to tabs');
-    router.replace('/(tabs)');
+    router.replace('/(tabs)/home');
   };
 
   return (

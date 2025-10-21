@@ -2,9 +2,15 @@ import { Hono } from "hono";
 import { trpcServer } from "@hono/trpc-server";
 import { cors } from "hono/cors";
 import { initializeApp, getApps, type AppOptions } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
-import type { FirebaseFirestore } from "firebase-admin/firestore";
-import * as functions from "firebase-functions";
+import {
+  getFirestore,
+  FieldValue,
+  type Firestore,
+  type Query,
+  type QueryDocumentSnapshot,
+  type DocumentData,
+} from "firebase-admin/firestore";
+import * as functions from "firebase-functions/v1";
 import { appRouter } from "./trpc/app-router";
 import { createContext } from "./trpc/create-context";
 
@@ -20,7 +26,7 @@ const ensureFirebaseApp = () => {
   }
 };
 
-const getDb = () => {
+const getDb = (): Firestore => {
   ensureFirebaseApp();
   return getFirestore();
 };
@@ -84,7 +90,7 @@ app.post("/v1/push/broadcast", async (c) => {
     return c.json({ ok: false, error: "Missing title or body" }, 400);
   }
 
-  let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = db
+  let query: Query<DocumentData> = db
     .collection(TOKENS_COLLECTION)
     .where("enabled", "==", true);
 
@@ -97,7 +103,7 @@ app.post("/v1/push/broadcast", async (c) => {
   }
 
   const snapshot = await query.get();
-  const tokens = snapshot.docs.map((doc) => doc.id);
+  const tokens = snapshot.docs.map((doc: QueryDocumentSnapshot<DocumentData>) => doc.id);
 
   if (tokens.length === 0) {
     return c.json({ sent: 0, batches: 0 });
@@ -229,7 +235,7 @@ export const pruneInvalidPushTokens = functions.pubsub
 
     const batch = db.batch();
 
-    snapshot.docs.forEach((doc) => {
+    snapshot.docs.forEach((doc: QueryDocumentSnapshot<DocumentData>) => {
       batch.delete(doc.ref);
     });
 

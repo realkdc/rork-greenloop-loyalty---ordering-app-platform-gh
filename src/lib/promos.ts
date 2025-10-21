@@ -54,15 +54,21 @@ function normalizePromoRecord(promo: PromoApiRecord): PromoRecord | null {
 }
 
 const DEFAULT_ENV = "prod";
-const DEFAULT_STORE_ID = "store_123";
 const DEFAULT_LIMIT = 5;
 
-export async function fetchPromos({ env = DEFAULT_ENV, storeId = DEFAULT_STORE_ID, limit = DEFAULT_LIMIT }: FetchPromosParams = {}): Promise<PromoRecord[]> {
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL;
-
-  if (!apiBaseUrl) {
-    console.warn("[promos] Missing EXPO_PUBLIC_API_URL environment variable");
+export async function fetchPromos({ env = DEFAULT_ENV, storeId, limit = DEFAULT_LIMIT }: FetchPromosParams = {}): Promise<PromoRecord[]> {
+  if (!storeId) {
+    console.warn("[promos] No storeId provided");
     return [];
+  }
+  
+  // Use the correct API base URL
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app';
+  
+  // Debug logging when enabled
+  const debugPromos = process.env.EXPO_PUBLIC_DEBUG_PROMOS === 'true';
+  if (debugPromos) {
+    console.log("[promos] DEBUG: Active storeId:", storeId);
   }
 
   try {
@@ -71,6 +77,11 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId = DEFAULT_STORE_I
     url.searchParams.set("storeId", storeId);
     url.searchParams.set("limit", String(limit));
 
+    console.log("[promos] Fetching from URL:", url.toString());
+    if (debugPromos) {
+      console.log("[promos] DEBUG: Full API URL:", url.toString());
+    }
+    
     const response = await fetch(url.toString());
 
     if (!response.ok) {
@@ -79,6 +90,11 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId = DEFAULT_STORE_I
     }
 
     const payload: unknown = await response.json();
+    console.log("[promos] API response:", { status: response.status, payload });
+    
+    if (debugPromos) {
+      console.log("[promos] DEBUG: Response payload count:", Array.isArray(payload) ? payload.length : 'not an array');
+    }
 
     if (!Array.isArray(payload)) {
       console.warn("[promos] Unexpected promos payload shape", { payload });
@@ -87,7 +103,24 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId = DEFAULT_STORE_I
 
     const promos = payload
       .map((item) => normalizePromoRecord(item as PromoApiRecord))
-      .filter((item): item is PromoRecord => Boolean(item));
+      .filter((item): item is PromoRecord => Boolean(item))
+      .filter((promo) => {
+        const now = new Date();
+        const isActive = (!promo.startsAt || promo.startsAt <= now) && 
+                        (!promo.endsAt || promo.endsAt >= now);
+        
+        if (!isActive) {
+          console.log("[promos] Filtering out inactive promo:", {
+            id: promo.id,
+            title: promo.title,
+            startsAt: promo.startsAt,
+            endsAt: promo.endsAt,
+            now: now.toISOString()
+          });
+        }
+        
+        return isActive;
+      });
 
     const shouldLogPromos = typeof __DEV__ === "undefined" || __DEV__;
     if (shouldLogPromos) {
@@ -102,8 +135,19 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId = DEFAULT_STORE_I
 }
 
 export async function getPromos(storeId?: string): Promise<PromoRecord[]> {
-  const effectiveStoreId = typeof storeId === "string" && storeId.trim().length > 0 ? storeId : DEFAULT_STORE_ID;
-  const promos = await fetchPromos({ storeId: effectiveStoreId });
+  if (!storeId) {
+    console.warn("[promos] No storeId provided to getPromos");
+    return [];
+  }
+  
+  // Map the full store ID to the API format
+  const apiStoreId = storeId.includes('greenhaus-tn-') 
+    ? storeId.replace('greenhaus-tn-', '') 
+    : storeId;
+  
+  console.log("[promos] Mapped storeId:", { original: storeId, apiStoreId });
+  
+  const promos = await fetchPromos({ storeId: apiStoreId });
 
   if (promos.length === 0) {
     return promos;
@@ -111,6 +155,6 @@ export async function getPromos(storeId?: string): Promise<PromoRecord[]> {
 
   return promos.map((promo) => ({
     ...promo,
-    storeId: promo.storeId ?? effectiveStoreId,
+    storeId: promo.storeId ?? storeId,
   }));
 }

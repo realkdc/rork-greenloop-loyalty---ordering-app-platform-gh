@@ -15,6 +15,7 @@ type RegisterPushTokenParams = {
   storeId: string;
   backendBaseUrl?: string;
   env: "prod" | string;
+  optedIn?: boolean;
 };
 
 const getExtra = (): EasExtra | undefined => {
@@ -49,12 +50,19 @@ const getDeviceName = async (): Promise<string | null> => {
     return Device.deviceName;
   }
 
-  try {
-    return await Device.getDeviceNameAsync();
-  } catch (error) {
-    console.warn("Failed to resolve device name", error);
-    return null;
+  const maybeGetDeviceNameAsync = (Device as {
+    getDeviceNameAsync?: () => Promise<string | null>;
+  }).getDeviceNameAsync;
+
+  if (typeof maybeGetDeviceNameAsync === "function") {
+    try {
+      return await maybeGetDeviceNameAsync();
+    } catch (error) {
+      console.warn("Failed to resolve device name", error);
+    }
   }
+
+  return Device.modelName ?? null;
 };
 
 export const registerPushToken = async ({
@@ -62,6 +70,7 @@ export const registerPushToken = async ({
   storeId,
   backendBaseUrl,
   env,
+  optedIn,
 }: RegisterPushTokenParams): Promise<string | null> => {
   if (!Device.isDevice) {
     console.log("Skipping push registration: requires physical device");
@@ -107,7 +116,7 @@ export const registerPushToken = async ({
     const normalizedBaseUrl = backendBaseUrl.replace(/\/$/, "");
     const registerUrl = `${normalizedBaseUrl}/v1/push/register`;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       token,
       userId,
       storeId,
@@ -116,6 +125,10 @@ export const registerPushToken = async ({
       appVersion: getAppVersion(),
       env,
     };
+
+    if (typeof optedIn === "boolean") {
+      payload.optedIn = optedIn;
+    }
 
     const response = await fetch(registerUrl, {
       method: "POST",

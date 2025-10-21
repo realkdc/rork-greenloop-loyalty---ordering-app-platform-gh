@@ -1,13 +1,16 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, Linking, Dimensions } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, Linking, Dimensions, AppState } from "react-native";
 import type { WebView } from "react-native-webview";
 import * as Clipboard from "expo-clipboard";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebShell } from "@/components/WebShell";
 import { webviewRefs } from "./_layout";
 import { useFocusEffect } from "@react-navigation/native";
 import { Mail, Link2 } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { AUTH_CONFIG } from "@/config/authConfig";
+import { parseMagicLink } from '@/src/lib/auth/parseMagicLink';
+import { loginWithMagicLink } from '@/src/lib/auth/loginWithMagicLink';
 
 const MAGIC_CONFIRM_SELECTORS = [
   '.ec-notification',
@@ -43,31 +46,14 @@ export default function ProfileTab() {
   const screenHeightRef = useRef<number>(Dimensions.get("window").height);
   const toastVisibleRef = useRef<boolean>(false);
   const fallbackAttemptsRef = useRef<number>(0);
+  const pendingClipboardCheckRef = useRef<boolean>(false);
+  const appStateRef = useRef<string>(AppState.currentState || 'active');
+  
+  // New: Auto magic link state
+  const triedClipboardThisSession = useRef<boolean>(false);
+  const [showToast, setShowToast] = useState<string | null>(null);
   
   webviewRefs.profile = ref;
-
-  const validateMagicLink = (url: string): boolean => {
-    try {
-      const urlObj = new URL(url);
-      
-      const isValidHost = AUTH_CONFIG.magicLinkPatterns.hosts.some(
-        host => urlObj.hostname.includes(host)
-      );
-      
-      const hasValidPath = AUTH_CONFIG.magicLinkPatterns.paths.some(
-        path => urlObj.pathname.includes(path)
-      );
-      
-      const hasTokenParam = AUTH_CONFIG.magicLinkPatterns.tokenParams.some(
-        param => urlObj.searchParams.has(param)
-      );
-      
-      return isValidHost && hasValidPath && hasTokenParam;
-    } catch (error) {
-      console.log('❌ Invalid URL format:', error);
-      return false;
-    }
-  };
 
   const applyMagicLink = useCallback((magicUrl: string) => {
     if (!ref.current || hasAppliedLinkRef.current) {
@@ -79,27 +65,181 @@ export default function ProfileTab() {
     hasAppliedLinkRef.current = true;
     setShowHelper(false);
 
+    const rawLink = magicUrl.trim();
+
+    const buildDestination = (value: string) => {
+      if (!value) {
+        return `https://${AUTH_CONFIG.host}/products/account`;
+      }
+
+      if (/^https?:/i.test(value)) {
+        return value;
+      }
+
+      if (value.startsWith('?')) {
+        return `https://${AUTH_CONFIG.host}/products/account${value}`;
+      }
+
+      if (value.includes('=')) {
+        const query = value.replace(/^\?/, '');
+        return `https://${AUTH_CONFIG.host}/products/account?${query}`;
+      }
+
+      return `https://${AUTH_CONFIG.host}/products/account?key=${encodeURIComponent(value)}`;
+    };
+
+    const destination = buildDestination(rawLink);
+
+    const safeDestination = destination
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'");
+
     const applyScript = `
       (function(){
         try {
-          console.log('[Auth] Navigating to magic link');
-          const url = '${magicUrl.replace(/'/g, "\\'")}';
-          
-          window.location.href = url;
-          
-          console.log('[Auth] Navigation initiated');
+          const url = '${safeDestination}';
+          console.log('[Auth] Navigating to magic link URL', url);
+          window.location.replace(url);
         } catch(e){
-          console.error('[Auth] Error:', e);
+          console.error('[Auth] Error applying magic link', e);
         }
       })();
       true;
     `;
 
     ref.current.injectJavaScript(applyScript);
+  }, []);
+
+  // New: Handle clipboard pull on "Get sign-in link" click
+  const handleGetLinkClick = useCallback(async () => {
+    const DEBUG = process.env.EXPO_PUBLIC_MAGICLINK_DEBUG === 'true';
     
-    setTimeout(() => {
-      hasAppliedLinkRef.current = false;
-    }, 10000);
+    if (DEBUG) {
+      console.log('🔍 [MagicLink Debug] Get sign-in link button clicked');
+    }
+    
+    if (triedClipboardThisSession.current) {
+      if (DEBUG) {
+        console.log('🔍 [MagicLink Debug] Already tried clipboard this session, skipping');
+      }
+      console.log('🔒 Already tried clipboard this session, skipping');
+      return;
+    }
+
+      // Check 10-minute cooldown
+      try {
+        const lastAttempt = await AsyncStorage.getItem('gh.magiclink.lastAttempt');
+        if (lastAttempt) {
+          const lastAttemptTime = parseInt(lastAttempt, 10);
+          const now = Date.now();
+          const tenMinutes = 10 * 60 * 1000;
+
+          if (now - lastAttemptTime < tenMinutes) {
+            if (DEBUG) {
+              console.log('🔍 [MagicLink Debug] Within 10-minute cooldown, skipping');
+            }
+            console.log('🔒 Within 10-minute cooldown, skipping');
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to check cooldown:', error);
+      }
+
+    triedClipboardThisSession.current = true;
+    pendingClipboardCheckRef.current = false;
+    
+    // Store attempt timestamp
+    try {
+      await AsyncStorage.setItem('gh.magiclink.lastAttempt', Date.now().toString());
+    } catch (error) {
+      console.warn('Failed to store attempt timestamp:', error);
+    }
+
+    if (DEBUG) {
+      console.log('🔍 [MagicLink Debug] Reading clipboard after Get sign-in link click');
+    }
+    console.log('📋 Reading clipboard after Get sign-in link click');
+    
+    try {
+      const clipboardContent = await Clipboard.getStringAsync();
+      if (DEBUG) {
+        console.log('🔍 [MagicLink Debug] Clipboard content:', clipboardContent);
+      }
+      console.log('📋 Clipboard content:', clipboardContent);
+      
+      const parsed = parseMagicLink(clipboardContent);
+      if (parsed?.token) {
+        if (DEBUG) {
+          console.log('🔍 [MagicLink Debug] Found magic link token:', parsed.token);
+        }
+        console.log('🎯 Found magic link token:', parsed.token);
+        
+        // Check if we've already processed this token
+        try {
+          const lastToken = await AsyncStorage.getItem('gh.magiclink.lastToken');
+          const tokenHash = parsed.token.slice(0, 8); // Use first 8 chars as hash
+          
+          if (lastToken === tokenHash) {
+            console.log('🔒 Token already processed recently, skipping');
+            return;
+          }
+          
+          // Store token hash
+          await AsyncStorage.setItem('gh.magiclink.lastToken', tokenHash);
+        } catch (error) {
+          console.warn('Failed to check/store token:', error);
+        }
+        
+        // Attempt login
+        if (DEBUG) {
+          console.log('🔍 [MagicLink Debug] Attempting login with token');
+        }
+        const success = await loginWithMagicLink(parsed.token, {
+          webViewRef: ref,
+          onSuccess: () => {
+            if (DEBUG) {
+              console.log('🔍 [MagicLink Debug] Auto magic link login successful');
+            }
+            console.log('✅ Auto magic link login dispatched, awaiting confirmation');
+          },
+          onError: (error) => {
+            if (DEBUG) {
+              console.log('🔍 [MagicLink Debug] Auto magic link login failed:', error);
+            }
+            console.error('❌ Auto magic link login failed:', error);
+            setShowToast('Couldn\'t sign in from link. You can paste it in the banner.');
+            setTimeout(() => setShowToast(null), 5000);
+            triedClipboardThisSession.current = false;
+          }
+        });
+        
+        if (success && clipboardContent.includes('greenhauscc.com')) {
+          // Clear clipboard if it was the exact magic link URL
+          try {
+            await Clipboard.setStringAsync('');
+          } catch (error) {
+            console.warn('Failed to clear clipboard:', error);
+          }
+        }
+      } else {
+        if (DEBUG) {
+          console.log('🔍 [MagicLink Debug] No magic link token found in clipboard');
+        }
+        console.log('📋 No magic link token found in clipboard');
+        setShowToast('Didn\'t find a link. Paste it manually.');
+        setTimeout(() => setShowToast(null), 4000);
+        triedClipboardThisSession.current = false;
+        // Auto-paste disabled: pendingClipboardCheckRef.current = true;
+      }
+    } catch (error) {
+      console.warn('Failed to read clipboard:', error);
+      if (Platform.OS === 'ios' && error.message?.includes('permission')) {
+        console.log('📋 Clipboard access denied - this is normal on iOS');
+      }
+      triedClipboardThisSession.current = false;
+      // Auto-paste disabled: pendingClipboardCheckRef.current = true;
+    }
   }, [ref]);
 
   const suppressMagicBanner = useCallback((isSuppressed: boolean) => {
@@ -315,11 +455,15 @@ export default function ProfileTab() {
       true;
     `;
     ref.current.injectJavaScript(script);
-  }, []);
-
+  }, [ref]);
 
 
   const handleManualPaste = async () => {
+    if (hasAppliedLinkRef.current) {
+      console.log('❌ Link already applied, ignoring manual paste');
+      return;
+    }
+
     try {
       const clipboardContent = await Clipboard.getStringAsync();
       
@@ -328,7 +472,9 @@ export default function ProfileTab() {
         return;
       }
 
-      if (!validateMagicLink(clipboardContent)) {
+      // Use the new parseMagicLink function
+      const parsed = parseMagicLink(clipboardContent);
+      if (!parsed) {
         Alert.alert(
           'Invalid Link',
           'The clipboard does not contain a valid GreenHaus sign-in link. Please copy the link from your email and try again.'
@@ -337,7 +483,11 @@ export default function ProfileTab() {
       }
 
       console.log('✅ Valid magic link from manual paste');
-      applyMagicLink(clipboardContent);
+      
+      applyMagicLink(`key=${parsed.token}`);
+      
+      // Set the flag after successful application
+      hasAppliedLinkRef.current = true;
       clearBannerTimer();
       setShowHelper(false);
       toastVisibleRef.current = false;
@@ -371,11 +521,22 @@ export default function ProfileTab() {
       const msg = JSON.parse(event.nativeEvent.data || '{}');
       
       switch (msg.type) {
+        case 'gh:getlink_clicked': {
+          console.log('[Auth] Get sign-in link button clicked from web:', msg.source);
+          triedClipboardThisSession.current = false;
+          pendingClipboardCheckRef.current = !isLoggedInRef.current;
+          if (!isLoggedInRef.current) {
+            handleGetLinkClick();
+          }
+          break;
+        }
         case 'MAGIC_LINK_REQUESTED': {
           if (isLoggedInRef.current) {
             break;
           }
           console.log('[Auth] Magic link request detected from web:', msg.source);
+          triedClipboardThisSession.current = false;
+          // Auto-paste disabled: pendingClipboardCheckRef.current = true;
           hasRequestedLinkRef.current = true;
           bannerDismissedRef.current = false;
           lastToastRectRef.current = null;
@@ -386,11 +547,13 @@ export default function ProfileTab() {
           setShowHelper(false);
           startConfirmationProbe();
           scheduleBannerFallback(2000, DEFAULT_HELPER_TOP);
+          // Auto-paste disabled: pendingClipboardCheckRef.current = true;
           break;
         }
         case 'EMAIL_LINK_SENT': {
         console.log('📧 Email link sent confirmation');
         hasAppliedLinkRef.current = false;
+        triedClipboardThisSession.current = false;
         if (isLoggedInRef.current) {
           break;
         }
@@ -409,11 +572,13 @@ export default function ProfileTab() {
           updateHelperPosition(rect);
           clearBannerTimer();
           setShowHelper(true);
+          // Auto-paste disabled: pendingClipboardCheckRef.current = true;
           fallbackAttemptsRef.current = 0;
         } else {
           updateHelperPosition(undefined);
           setShowHelper(true);
-      scheduleBannerFallback(900, DEFAULT_HELPER_TOP + 36);
+          // Auto-paste disabled: pendingClipboardCheckRef.current = true;
+          scheduleBannerFallback(900, DEFAULT_HELPER_TOP + 36);
         }
           break;
         }
@@ -427,10 +592,10 @@ export default function ProfileTab() {
               updateHelperPosition(msg.rect);
             }
             setShowHelper(false);
-            scheduleBannerFallback(1200, computeOffset(lastToastRectRef.current || undefined));
+            pendingClipboardCheckRef.current = false;
+            fallbackAttemptsRef.current = 0;
           } else {
             clearBannerTimer();
-            updateHelperPosition(undefined);
             console.log('[Auth] Confirmation hidden signal received, evaluating helper banner');
             if (
               hasRequestedLinkRef.current &&
@@ -438,6 +603,8 @@ export default function ProfileTab() {
               !isLoggedInRef.current
             ) {
               setShowHelper(true);
+              // Auto-paste disabled: pendingClipboardCheckRef.current = true;
+              scheduleBannerFallback(900, computeOffset(lastToastRectRef.current || undefined));
               fallbackAttemptsRef.current = 0;
             }
           }
@@ -499,11 +666,19 @@ export default function ProfileTab() {
     } catch (error) {
       console.error('Profile message error:', error);
     }
-  }, [clearBannerTimer, scheduleBannerFallback, startConfirmationProbe, suppressMagicBanner, updateHelperPosition]);
+  }, [clearBannerTimer, computeOffset, handleGetLinkClick, scheduleBannerFallback, startConfirmationProbe, suppressMagicBanner, updateHelperPosition]);
 
   useFocusEffect(
     React.useCallback(() => {
       console.log('[Profile Tab] 👤 Focused - requesting cart count update');
+
+      // Auto-paste disabled - users must manually tap "Paste Link" button
+      // if (pendingClipboardCheckRef.current && !triedClipboardThisSession.current && !hasAppliedLinkRef.current) {
+      //   console.log('[MagicLink] Running pending clipboard check on focus');
+      //   handleGetLinkClick();
+      // }
+      // Auto-paste disabled: pendingClipboardCheckRef.current = false;
+
       ref.current?.injectJavaScript(`
         (function(){ 
           try{ 
@@ -518,8 +693,30 @@ export default function ProfileTab() {
       `);
       
       return undefined;
-    }, [])
+    }, [handleGetLinkClick])
   );
+
+  useEffect(() => {
+    const handleAppStateChange = (nextState: string) => {
+      const prevState = appStateRef.current;
+      appStateRef.current = nextState;
+
+      if (prevState.match(/inactive|background/) && nextState === 'active') {
+        console.log('[MagicLink] App resumed from background');
+        // Auto-paste disabled - users must manually tap "Paste Link" button
+        // if (pendingClipboardCheckRef.current && !triedClipboardThisSession.current && !hasAppliedLinkRef.current) {
+        //   console.log('[MagicLink] Running pending clipboard check on resume');
+        //   handleGetLinkClick();
+        // }
+        // Auto-paste disabled: pendingClipboardCheckRef.current = false;
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [handleGetLinkClick]);
 
   useEffect(() => {
     return () => {
@@ -606,13 +803,14 @@ export default function ProfileTab() {
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
       />
-      
       {showHelper && (
         <View style={[styles.helperBanner, { top: helperOffset }]}> 
-          <Link2 size={20} color={Colors.primary} style={styles.icon} />
-          <View style={styles.textContainer}>
-            <Text style={styles.bannerTitle}>Got the sign-in link?</Text>
-            <Text style={styles.bannerText}>Copy it from your email, then tap Paste</Text>
+          <View style={styles.bannerContent}>
+            <Link2 size={20} color={Colors.primary} style={styles.icon} />
+            <View style={styles.textContainer}>
+              <Text style={styles.bannerTitle}>Got the sign-in link?</Text>
+              <Text style={styles.bannerText}>Copy it from your email, then tap Paste</Text>
+            </View>
           </View>
           <View style={styles.buttonContainer}>
             <TouchableOpacity 
@@ -642,9 +840,16 @@ export default function ProfileTab() {
         </View>
       )}
 
+
       {showSuccess && (
         <View style={styles.successBanner}>
           <Text style={styles.successText}>✓ Signed in successfully</Text>
+        </View>
+      )}
+
+      {showToast && (
+        <View style={styles.toastBanner}>
+          <Text style={styles.toastText}>{showToast}</Text>
         </View>
       )}
       
@@ -660,41 +865,43 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    alignSelf: 'center',
-    maxWidth: 340,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
-    padding: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowRadius: 16,
     elevation: 8,
-    borderWidth: 2,
-    borderColor: Colors.primary,
+  },
+  bannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   icon: {
     marginRight: 12,
   },
   textContainer: {
     flex: 1,
+    marginLeft: 12,
   },
   bannerTitle: {
-    fontSize: 16,
-    fontWeight: '700' as const,
-    color: Colors.text,
-    marginBottom: 2,
+    fontSize: 17,
+    fontWeight: '600' as const,
+    color: '#1F2937',
+    marginBottom: 4,
   },
   bannerText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
   },
   buttonContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
   },
   mailButton: {
     backgroundColor: Colors.primary,
@@ -703,26 +910,30 @@ const styles = StyleSheet.create({
   },
   pasteButton: {
     backgroundColor: Colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flex: 1,
+    marginLeft: 8,
   },
   pasteButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700' as const,
+    fontSize: 15,
+    fontWeight: '600' as const,
+    textAlign: 'center',
   },
   dismissButton: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.surface,
+    backgroundColor: '#F3F4F6',
     alignItems: 'center',
     justifyContent: 'center',
+    marginLeft: 8,
   },
   dismissButtonText: {
-    fontSize: 24,
-    color: Colors.textLight,
+    fontSize: 18,
+    color: '#9CA3AF',
     fontWeight: '400' as const,
   },
   successBanner: {
@@ -744,5 +955,26 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700' as const,
+  },
+  toastBanner: {
+    position: 'absolute',
+    top: 60,
+    left: 16,
+    right: 16,
+    backgroundColor: '#f59e0b',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  toastText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600' as const,
+    textAlign: 'center',
   },
 });

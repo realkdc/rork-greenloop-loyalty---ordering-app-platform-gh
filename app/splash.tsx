@@ -28,10 +28,10 @@ export default function SplashScreen() {
         } else if (!onboarding?.activeStoreId) {
           router.replace('/store-picker');
         } else {
-          router.replace('/(tabs)');
+          router.replace('/(tabs)/home');
         }
       } else {
-        router.replace('/(tabs)');
+        router.replace('/(tabs)/home');
       }
     }, 1500);
 

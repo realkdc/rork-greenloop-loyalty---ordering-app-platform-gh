@@ -10,7 +10,6 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { WebViewProvider } from "@/contexts/WebViewContext";
 import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
-import { DebugMenu } from "@/lib/debugMenu";
 import { trpc, trpcClient } from "@/lib/trpc";
 import registerPushToken from "@/src/lib/push/registerPushToken";
 
@@ -22,6 +21,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -40,7 +41,6 @@ function RootLayoutNav() {
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ title: "Admin" }} />
       <Stack.Screen name="promos" options={{ title: "Promotions" }} />
-      <Stack.Screen name="devpush" options={{ title: "Developer Push Test" }} />
       <Stack.Screen 
         name="qr-scanner" 
         options={{ 
@@ -129,14 +129,21 @@ function DeepLinkHandler() {
   const { pendingMagicLink, setPendingMagicLink } = useMagicLink();
 
   useEffect(() => {
-    if (pendingMagicLink) {
-      console.log('🔗 Processing magic link, navigating to profile...');
-      router.push('/(tabs)/profile');
-      
-      setTimeout(() => {
-        setPendingMagicLink(null);
-      }, 2000);
+    if (!pendingMagicLink) {
+      return;
     }
+
+    console.log("🔗 Processing magic link, navigating to profile...");
+
+    router.push("/(tabs)/profile");
+
+    const timer = setTimeout(() => {
+      setPendingMagicLink(null);
+    }, 2000);
+
+    return () => {
+      clearTimeout(timer);
+    };
   }, [pendingMagicLink, router, setPendingMagicLink]);
 
   return null;
@@ -152,6 +159,7 @@ function PushTokenRegistrar() {
       return;
     }
 
+    console.log(`PUSH register env=prod store=${selectedStoreId}`);
     void registerPushToken({
       userId: user.id,
       storeId: selectedStoreId,
@@ -188,7 +196,6 @@ export default function RootLayout() {
                       <PushTokenRegistrar />
                       <DeepLinkHandler />
                       <RootLayoutNav />
-                      <DebugMenu />
                     </GestureHandlerRootView>
                   </WebViewProvider>
                 </MagicLinkProvider>

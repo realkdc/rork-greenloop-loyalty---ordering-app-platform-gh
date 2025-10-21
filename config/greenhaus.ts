@@ -17,9 +17,18 @@ export const STORES: StoreInfo[] = [
     name: 'GreenHaus Cannabis Co.',
     city: 'Cookeville',
     state: 'TN',
-    onlineOrderUrl: 'https://greenhauscc.com',
     lat: 36.1628,
     lng: -85.5016,
+    onlineOrderUrl: 'https://greenhauscc.com',
+  },
+  {
+    id: 'greenhaus-tn-crossville',
+    name: 'GreenHaus Crossville',
+    city: 'Crossville',
+    state: 'TN',
+    lat: 35.9481,
+    lng: -85.0269,
+    onlineOrderUrl: 'https://greenhauscc.com',
   },
 ];
 

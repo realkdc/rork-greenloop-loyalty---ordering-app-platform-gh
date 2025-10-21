@@ -6,17 +6,35 @@ import type { PromoRecord } from '@/src/lib/promos';
 interface PromoCardProps {
   promo: PromoRecord;
   onPressView?: (url: string) => void;
+  getCleanStoreName?: (storeId?: string | null) => string;
 }
 
-export const PromoCard = memo(function PromoCard({ promo, onPressView }: PromoCardProps) {
+export const PromoCard = memo(function PromoCard({ promo, onPressView, getCleanStoreName }: PromoCardProps) {
   const canView = !!promo.deepLinkUrl;
+
+  // Clean up store name for display - just show location
+  const getLocationOnly = (storeId?: string | null) => {
+    if (!storeId) return 'PROMO';
+    
+    if (storeId.includes('cookeville')) {
+      return 'COOKEVILLE';
+    } else if (storeId.includes('crossville')) {
+      return 'CROSSVILLE';
+    }
+    
+    // Extract last part after last dash
+    const parts = storeId.split('-');
+    return parts[parts.length - 1].toUpperCase();
+  };
+
+  const locationName = getLocationOnly(promo.storeId);
 
   return (
     <View style={styles.container} testID="promo-card">
       <View style={styles.header}>
-        <Text style={styles.pill}>{promo.storeName || promo.storeId?.toUpperCase() || 'PROMO'}</Text>
+        <Text style={styles.pill} numberOfLines={1}>{locationName}</Text>
         {promo.startsAt && (
-          <Text style={styles.meta}>
+          <Text style={styles.meta} numberOfLines={1}>
             {promo.startsAt.toLocaleDateString(undefined, {
               month: 'short',
               day: 'numeric',
@@ -54,21 +72,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: 32,
   },
   pill: {
     backgroundColor: colors.primary,
     color: '#FFFFFF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 999,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    alignSelf: 'flex-start',
   },
   meta: {
     fontSize: 12,
     color: colors.textLight,
-    marginLeft: 12,
+    fontWeight: '500',
+    flexShrink: 0,
   },
   title: {
     fontSize: 18,

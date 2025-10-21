@@ -27,7 +27,23 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>myapp</string>
+          <string>greenhaus</string>
+          <string>com.greenhaus.customer</string>
+        </array>
+      </dict>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>exp+greenloop-loyalty-ordering-platform</string>
+        </array>
+      </dict>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>greenhaus</string>
           <string>com.greenhaus.customer</string>
         </array>
       </dict>
@@ -39,7 +55,7 @@
       </dict>
     </array>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>4</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSMinimumSystemVersion</key>
@@ -67,10 +83,12 @@
     <array>
       <string>$(PRODUCT_BUNDLE_IDENTIFIER).expo.index_route</string>
     </array>
+    <key>NSUserTrackingUsageDescription</key>
+    <string>This allows us to send you relevant notifications.</string>
     <key>UIBackgroundModes</key>
     <array>
       <string>location</string>
-      <string>location</string>
+      <string>remote-notification</string>
     </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>

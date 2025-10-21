@@ -46,11 +46,11 @@ export default function AgeGateScreen() {
 
           <Text style={styles.legalText}>
             By confirming, you agree to our{' '}
-            <Text style={styles.link} onPress={() => openLegalLink('https://greenhauscc.com/privacy')}>
+            <Text style={styles.link} onPress={() => openLegalLink('https://greenhaus-site.vercel.app/privacy')}>
               Privacy Policy
             </Text>
             {' '}and{' '}
-            <Text style={styles.link} onPress={() => openLegalLink('https://greenhauscc.com/terms')}>
+            <Text style={styles.link} onPress={() => openLegalLink('https://greenhaus-site.vercel.app/terms')}>
               Terms of Service
             </Text>
             .

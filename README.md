@@ -178,6 +178,14 @@ This template includes:
 - **Async storage** for local data persistence
 - **Vector icons** with Lucide React Native
 
+## Phase 2: Store Segmentation
+
+**Store segmentation is now live** with the following canonical store IDs:
+- `greenhaus-tn-crossville` (label: "Crossville, TN")
+- `greenhaus-tn-cookeville` (label: "Cookeville, TN")
+
+The app now uses real store segmentation instead of the placeholder `store_123`. Users will be prompted to select their preferred store during onboarding, and this selection is persisted for both guest and signed-in users.
+
 ## Project Structure
 
 ```

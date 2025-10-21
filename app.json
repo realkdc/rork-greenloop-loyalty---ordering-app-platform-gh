@@ -16,7 +16,10 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhaus.customer",
-      "buildNumber": "4",
+      "buildNumber": "8",
+      "associatedDomains": [
+        "applinks:greenhaus-site.vercel.app"
+      ],
       "infoPlist": {
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
@@ -82,7 +85,8 @@
         }
       ],
       "expo-notifications",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

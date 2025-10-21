@@ -9,6 +9,7 @@ import { getPromos, type PromoRecord } from "@/src/lib/promos";
 import { webviewRefs } from "./_layout";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useActiveStoreId } from "@/src/hooks/useActiveStoreId";
 
 function normalizeStore(storeId: string | null | undefined): "cookeville" | "crossville" | null {
   if (!storeId) return null;
@@ -22,8 +23,7 @@ function normalizeStore(storeId: string | null | undefined): "cookeville" | "cro
 export default function HomeTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.home = ref;
-  const { selectedStoreId } = useApp();
-  const storeSlug = useMemo(() => normalizeStore(selectedStoreId), [selectedStoreId]);
+  const { storeId, ready } = useActiveStoreId();
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
@@ -34,10 +34,24 @@ export default function HomeTab() {
   const insets = useSafeAreaInsets();
 
   const activeStoreId = useMemo(() => {
-    if (storeSlug) return storeSlug;
-    console.warn("[Promo] selectedStoreId missing; falling back to default store");
-    return "store_123";
-  }, [storeSlug]);
+    if (!ready) return null;
+    if (storeId) return storeId;
+    console.warn("[Promo] storeId not ready yet");
+    return null;
+  }, [storeId, ready]);
+
+  // Clean up store name for display
+  const getCleanStoreName = useCallback((storeId?: string | null) => {
+    if (!storeId) return 'STORE';
+    
+    if (storeId.includes('greenhaus-tn-cookeville')) {
+      return 'GREENHAUS COOKEVILLE';
+    } else if (storeId.includes('greenhaus-tn-crossville')) {
+      return 'GREENHAUS CROSSVILLE';
+    }
+    
+    return storeId.toUpperCase().replace(/-/g, ' ');
+  }, []);
 
   const openPromoUrl = useCallback((url: string) => {
     if (!ref.current) return;
@@ -46,10 +60,17 @@ export default function HomeTab() {
   }, []);
 
   const fetchPromos = useCallback(async () => {
+    if (!activeStoreId) {
+      console.log("[promos] waiting for storeId...");
+      return;
+    }
+    
+    console.log(`[promos] fetching promos for ${activeStoreId}`);
+    
     try {
       setLoadingPromos(true);
       const items = await getPromos(activeStoreId);
-      console.log("[promos]", { storeId: selectedStoreId, count: items.length });
+      console.log("[promos]", { storeId: activeStoreId, count: items.length });
       setPromos(items);
       if (items.length > 0) {
         setCurrentPromoIndex(0);
@@ -60,7 +81,7 @@ export default function HomeTab() {
     } finally {
       setLoadingPromos(false);
     }
-  }, [activeStoreId, selectedStoreId]);
+  }, [activeStoreId]);
 
   useEffect(() => {
     fetchPromos();
@@ -104,7 +125,7 @@ export default function HomeTab() {
 
     cycleTimerRef.current = setInterval(() => {
       setCurrentPromoIndex((prev) => (prev + 1) % promos.length);
-    }, 8000);
+    }, 4000);
 
     return () => {
       if (cycleTimerRef.current) {
@@ -221,16 +242,15 @@ export default function HomeTab() {
             <TouchableWithoutFeedback onPress={() => {}}>
               <View style={styles.modalContainer}>
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>
-                    {activeStoreId.toUpperCase()} PROMOTIONS
-                  </Text>
+                  <Text style={styles.modalTitle}>CURRENT PROMOTIONS</Text>
                   <TouchableOpacity
                     onPress={closeModal}
                     style={styles.closeButton}
                     accessibilityRole="button"
                     accessibilityLabel="Close promotions"
+                    activeOpacity={0.6}
                   >
-                    <Ionicons name="close" size={20} color="#6B7280" />
+                    <Ionicons name="close" size={24} color="#9CA3AF" />
                   </TouchableOpacity>
                 </View>
 
@@ -242,7 +262,7 @@ export default function HomeTab() {
                   </View>
                 ) : currentPromo ? (
                   <>
-                    <PromoCard promo={currentPromo} onPressView={handlePromoView} />
+                    <PromoCard promo={currentPromo} onPressView={handlePromoView} getCleanStoreName={getCleanStoreName} />
                     {promos.length > 1 && (
                       <View style={styles.modalControls}>
                         <TouchableOpacity
@@ -344,9 +364,10 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
-    paddingVertical: 24,
-    paddingHorizontal: 22,
-    gap: 18,
+    paddingTop: 20,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    gap: 20,
     shadowColor: "#000000",
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.25,
@@ -356,33 +377,44 @@ const styles = StyleSheet.create({
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: -4,
+    justifyContent: "center",
+    position: "relative",
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
   },
   modalTitle: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
     color: "#1E4D3A",
-    letterSpacing: 1,
+    letterSpacing: 0.5,
+    textAlign: "center",
   },
   closeButton: {
+    position: "absolute",
+    right: 0,
+    top: -4,
     width: 32,
     height: 32,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "transparent",
   },
   modalControls: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    gap: 16,
+    paddingTop: 4,
   },
   navButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F3F4F6",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -390,16 +422,18 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    paddingHorizontal: 8,
   },
   dot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: "#D1D5DB",
+    transition: "all 0.3s ease",
   },
   dotActive: {
     backgroundColor: "#1E4D3A",
-    width: 18,
+    width: 20,
   },
   skeletonCard: {
     borderRadius: 18,

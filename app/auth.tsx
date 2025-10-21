@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { Mail, Phone } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,7 +33,7 @@ export default function AuthScreen() {
         }
         await signInWithPhone(phone.trim(), name.trim() || undefined);
       }
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/home');
     } catch (error) {
       console.error('Auth error:', error);
       alert('Something went wrong. Please try again.');
@@ -139,7 +139,14 @@ export default function AuthScreen() {
           </View>
 
           <Text style={styles.disclaimer}>
-            By continuing, you agree to our Terms of Service and Privacy Policy
+            By continuing, you agree to our
+            <Text style={styles.inlineLink} onPress={() => Linking.openURL('https://greenhaus-site.vercel.app/terms')}>
+              Terms of Service
+            </Text>
+            {' '}and{' '}
+            <Text style={styles.inlineLink} onPress={() => Linking.openURL('https://greenhaus-site.vercel.app/privacy')}>
+              Privacy Policy
+            </Text>
           </Text>
         </View>
       </KeyboardAvoidingView>
@@ -258,5 +265,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 32,
     lineHeight: 18,
+  },
+  inlineLink: {
+    color: Colors.primary,
+    textDecorationLine: 'underline',
   },
 });
