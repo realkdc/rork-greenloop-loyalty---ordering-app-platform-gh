@@ -78,7 +78,7 @@ export default function StorePickerScreen() {
                 <View style={styles.storeInfo}>
                   <Text style={styles.storeName}>{store.name}</Text>
                   <Text style={styles.storeAddress}>
-                    {store.address}, {store.city}
+                    {store.city}, {store.state}
                   </Text>
                 </View>
                 {selectedStore?.id === store.id && (

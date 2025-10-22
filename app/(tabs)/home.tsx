@@ -33,6 +33,9 @@ export default function HomeTab() {
   const promoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
 
+  // Cache the initial URL to prevent unnecessary reloads
+  const initialUrl = useMemo(() => "https://greenhauscc.com/", []);
+
   const activeStoreId = useMemo(() => {
     if (!ready) return null;
     if (storeId) return storeId;
@@ -205,7 +208,7 @@ export default function HomeTab() {
   return (
     <View style={styles.container}>
       <View style={styles.webShellWrapper}>
-        <WebShell ref={ref} initialUrl="https://greenhauscc.com/" tabKey="home" />
+        <WebShell ref={ref} initialUrl={initialUrl} tabKey="home" />
       </View>
 
       {promos.length > 0 && !isModalOpen && (
@@ -429,7 +432,6 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: "#D1D5DB",
-    transition: "all 0.3s ease",
   },
   dotActive: {
     backgroundColor: "#1E4D3A",

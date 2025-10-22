@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhaus.customer",
-      "buildNumber": "8",
+      "buildNumber": "12",
       "associatedDomains": [
         "applinks:greenhaus-site.vercel.app"
       ],
@@ -97,7 +97,14 @@
       },
       "eas": {
         "projectId": "975fd9b2-7c47-43a4-ac9b-da49f6d201fd"
-      }
+      },
+      "EXPO_PUBLIC_API_URL": "https://greenhaus-admin.vercel.app/api",
+      "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyC30WkAUhWaAGDK8-hhm70ajVrGPXRKZB",
+      "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "greenhaus-app.firebaseapp.com",
+      "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "greenhaus-app",
+      "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "greenhaus-app.firebasestorage.app",
+      "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "253214988919",
+      "EXPO_PUBLIC_FIREBASE_APP_ID": "1:253214988919:web:c8ddb5fdea61bb197bc4"
     }
   }
 }

@@ -65,7 +65,7 @@ export default function ClipboardLoginHandler() {
       }
     } catch (error) {
       // Handle iOS paste permission gracefully
-      if (Platform.OS === 'ios' && error.message?.includes('permission')) {
+      if (Platform.OS === 'ios' && error instanceof Error && error.message?.includes('permission')) {
         console.log('Clipboard access denied - this is normal on iOS');
       } else {
         console.warn('Failed to check clipboard:', error);

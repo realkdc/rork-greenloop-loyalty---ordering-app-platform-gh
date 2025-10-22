@@ -196,7 +196,7 @@ export default function ProfileTab() {
           console.log('🔍 [MagicLink Debug] Attempting login with token');
         }
         const success = await loginWithMagicLink(parsed.token, {
-          webViewRef: ref,
+          webViewRef: ref as React.RefObject<WebView>,
           onSuccess: () => {
             if (DEBUG) {
               console.log('🔍 [MagicLink Debug] Auto magic link login successful');
@@ -234,7 +234,7 @@ export default function ProfileTab() {
       }
     } catch (error) {
       console.warn('Failed to read clipboard:', error);
-      if (Platform.OS === 'ios' && error.message?.includes('permission')) {
+      if (Platform.OS === 'ios' && error instanceof Error && error.message?.includes('permission')) {
         console.log('📋 Clipboard access denied - this is normal on iOS');
       }
       triedClipboardThisSession.current = false;

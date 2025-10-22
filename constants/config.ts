@@ -34,5 +34,5 @@ export const BRAND_CONFIG: BrandConfig = {
 
 export const APP_CONFIG = {
   trackingSource: 'greenloop',
-  apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app',
+  apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app/api',
 };

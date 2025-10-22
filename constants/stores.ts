@@ -3,7 +3,7 @@ import type { Store } from '@/types';
 export const STORES: Store[] = [
   {
     id: 'greenhaus-tn-crossville',
-    name: 'GreenHaus Crossville',
+    name: 'GreenHaus Cannabis Co.',
     address: 'Market Street',
     city: 'Crossville',
     state: 'TN',
@@ -18,7 +18,7 @@ export const STORES: Store[] = [
   },
   {
     id: 'greenhaus-tn-cookeville',
-    name: 'GreenHaus Cookeville',
+    name: 'GreenHaus Cannabis Co.',
     address: '456 University Ave',
     city: 'Cookeville',
     state: 'TN',

@@ -63,7 +63,7 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId, limit = DEFAULT_
   }
   
   // Use the correct API base URL
-  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app';
+  const apiBaseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app/api';
   
   // Debug logging when enabled
   const debugPromos = process.env.EXPO_PUBLIC_DEBUG_PROMOS === 'true';
@@ -77,7 +77,7 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId, limit = DEFAULT_
     url.searchParams.set("storeId", storeId);
     url.searchParams.set("limit", String(limit));
 
-    console.log("[promos] Fetching from URL:", url.toString());
+    console.log("[promos] URL:", url.toString());
     if (debugPromos) {
       console.log("[promos] DEBUG: Full API URL:", url.toString());
     }
@@ -90,7 +90,7 @@ export async function fetchPromos({ env = DEFAULT_ENV, storeId, limit = DEFAULT_
     }
 
     const payload: unknown = await response.json();
-    console.log("[promos] API response:", { status: response.status, payload });
+    console.log("[promos] count:", Array.isArray(payload) ? payload.length : 0);
     
     if (debugPromos) {
       console.log("[promos] DEBUG: Response payload count:", Array.isArray(payload) ? payload.length : 'not an array');
@@ -140,14 +140,9 @@ export async function getPromos(storeId?: string): Promise<PromoRecord[]> {
     return [];
   }
   
-  // Map the full store ID to the API format
-  const apiStoreId = storeId.includes('greenhaus-tn-') 
-    ? storeId.replace('greenhaus-tn-', '') 
-    : storeId;
+  console.log("[promos] Using storeId:", storeId);
   
-  console.log("[promos] Mapped storeId:", { original: storeId, apiStoreId });
-  
-  const promos = await fetchPromos({ storeId: apiStoreId });
+  const promos = await fetchPromos({ storeId });
 
   if (promos.length === 0) {
     return promos;

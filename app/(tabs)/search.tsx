@@ -8,6 +8,9 @@ export default function SearchTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.search = ref;
 
+  // Cache the initial URL to prevent unnecessary reloads
+  const initialUrl = React.useMemo(() => "https://greenhauscc.com/products", []);
+
   useFocusEffect(React.useCallback(()=>{
     console.log('[Search Tab] 🔍 Focused - requesting cart count update');
     ref.current?.injectJavaScript(`
@@ -29,7 +32,7 @@ export default function SearchTab() {
   return (
     <WebShell
       ref={ref}
-      initialUrl="https://greenhauscc.com/products"
+      initialUrl={initialUrl}
       tabKey="search"
     />
   );

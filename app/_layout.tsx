@@ -30,14 +30,14 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
+    <Stack screenOptions={{ headerBackTitle: "Back", gestureEnabled: true, animation: "slide_from_right" }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="intro" options={{ headerShown: false }} />
       <Stack.Screen name="splash" options={{ headerShown: false }} />
       <Stack.Screen name="age-gate" options={{ headerShown: false }} />
       <Stack.Screen name="geo-gate" options={{ headerShown: false }} />
       <Stack.Screen name="store-picker" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false, gestureEnabled: true }} />
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="admin" options={{ title: "Admin" }} />
       <Stack.Screen name="promos" options={{ title: "Promotions" }} />
@@ -150,23 +150,29 @@ function DeepLinkHandler() {
 }
 
 function PushTokenRegistrar() {
-  const { user } = useAuth();
   const { selectedStoreId } = useApp();
   const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
   useEffect(() => {
-    if (!user?.id || !selectedStoreId) {
+    console.error("🎯 [PushTokenRegistrar] Effect triggered");
+    console.error("🎯 [PushTokenRegistrar] selectedStoreId:", selectedStoreId);
+    console.error("🎯 [PushTokenRegistrar] backendBaseUrl:", backendBaseUrl);
+    console.error("🎯 [PushTokenRegistrar] process.env.EXPO_PUBLIC_API_URL:", process.env.EXPO_PUBLIC_API_URL);
+
+    // Only register after store is selected and ready
+    if (!selectedStoreId) {
+      console.error("⏸️ [PushTokenRegistrar] Skipping: No store selected yet");
       return;
     }
 
-    console.log(`PUSH register env=prod store=${selectedStoreId}`);
+    console.error("▶️ [PushTokenRegistrar] Calling registerPushToken...");
     void registerPushToken({
-      userId: user.id,
       storeId: selectedStoreId,
       backendBaseUrl,
       env: "prod",
+      optedIn: true,
     });
-  }, [backendBaseUrl, selectedStoreId, user?.id]);
+  }, [backendBaseUrl, selectedStoreId]);
 
   return null;
 }

@@ -1,5 +1,4 @@
 import Constants from "expo-constants";
-import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
@@ -11,7 +10,6 @@ type EasExtra = {
 };
 
 type RegisterPushTokenParams = {
-  userId: string;
   storeId: string;
   backendBaseUrl?: string;
   env: "prod" | string;
@@ -36,49 +34,39 @@ const getProjectId = (): string | undefined => {
   return getExtra()?.eas?.projectId;
 };
 
-const getAppVersion = (): string | null => {
-  return (
-    Application.nativeApplicationVersion ??
-    Constants.nativeAppVersion ??
-    Constants.expoConfig?.version ??
-    null
-  );
-};
-
-const getDeviceName = async (): Promise<string | null> => {
-  if (Device.deviceName) {
-    return Device.deviceName;
-  }
-
-  const maybeGetDeviceNameAsync = (Device as {
-    getDeviceNameAsync?: () => Promise<string | null>;
-  }).getDeviceNameAsync;
-
-  if (typeof maybeGetDeviceNameAsync === "function") {
-    try {
-      return await maybeGetDeviceNameAsync();
-    } catch (error) {
-      console.warn("Failed to resolve device name", error);
-    }
-  }
-
-  return Device.modelName ?? null;
-};
+// Throttle: only register once per 20 seconds
+let lastRegistrationTime = 0;
+const THROTTLE_MS = 20000;
 
 export const registerPushToken = async ({
-  userId,
   storeId,
   backendBaseUrl,
   env,
-  optedIn,
+  optedIn = true,
 }: RegisterPushTokenParams): Promise<string | null> => {
+  console.error("🔔 [PUSH] registerPushToken called with:", {
+    storeId,
+    backendBaseUrl,
+    env,
+    optedIn,
+    isDevice: Device.isDevice,
+  });
+
   if (!Device.isDevice) {
     console.log("Skipping push registration: requires physical device");
     return null;
   }
 
   if (!backendBaseUrl) {
-    console.warn("Skipping push registration: backend base URL is undefined");
+    console.error("❌ [PUSH] CRITICAL: backend base URL is undefined!");
+    console.error("❌ [PUSH] process.env.EXPO_PUBLIC_API_URL =", process.env.EXPO_PUBLIC_API_URL);
+    return null;
+  }
+
+  // Throttle check
+  const now = Date.now();
+  if (now - lastRegistrationTime < THROTTLE_MS) {
+    console.log("PUSH register throttled (20s cooldown)");
     return null;
   }
 
@@ -114,21 +102,25 @@ export const registerPushToken = async ({
     }
 
     const normalizedBaseUrl = backendBaseUrl.replace(/\/$/, "");
-    const registerUrl = `${normalizedBaseUrl}/v1/push/register`;
+    const registerUrl = `${normalizedBaseUrl}/push/register`;
 
-    const payload: Record<string, unknown> = {
+    const payload = {
       token,
-      userId,
-      storeId,
-      platform: Platform.OS,
-      deviceName: await getDeviceName(),
-      appVersion: getAppVersion(),
+      deviceOS: Platform.OS,
       env,
+      storeId,
+      optedIn,
     };
 
-    if (typeof optedIn === "boolean") {
-      payload.optedIn = optedIn;
-    }
+    console.error("🚀 [PUSH] Registering token...");
+    console.error("📍 [PUSH] URL:", registerUrl);
+    console.error("📦 [PUSH] Payload:", {
+      tokenPreview: token.substring(0, 20) + "...",
+      deviceOS: Platform.OS,
+      env,
+      storeId,
+      optedIn,
+    });
 
     const response = await fetch(registerUrl, {
       method: "POST",
@@ -139,16 +131,20 @@ export const registerPushToken = async ({
     });
 
     if (!response.ok) {
-      console.warn("Failed to register push token", {
-        status: response.status,
-        statusText: response.statusText,
-      });
+      const errorText = await response.text().catch(() => "Unable to read error");
+      console.error(`❌ [PUSH] Registration FAILED: ${response.status}/${response.statusText}`);
+      console.error(`❌ [PUSH] Error body:`, errorText);
       return null;
     }
 
+    const responseData = await response.json().catch(() => ({}));
+    console.error("✅ [PUSH] Registration SUCCESS!");
+    console.error("✅ [PUSH] Response:", responseData);
+    lastRegistrationTime = now;
     return token;
   } catch (error) {
-    console.warn("Error during push token registration", error);
+    console.error("💥 [PUSH] Exception during registration:", error instanceof Error ? error.message : String(error));
+    console.error("💥 [PUSH] Full error:", error);
     return null;
   }
 };
