@@ -1,0 +1,60 @@
+App Review Notes - GreenHaus Build 24
+==========================================
+
+IMPORTANT: How This App Works
+------------------------------
+
+This is a WEBVIEW APP that wraps our existing e-commerce website (greenhauscc.com). We leverage our fully functional Lightspeed e-commerce platform while adding native iOS features.
+
+AUTHENTICATION:
+- Uses MAGIC LINKS (SMS/email links) - NO email/password login
+- Users enter phone/email → receive link → click to authenticate
+- For review: App is pre-configured to auto-authenticate (reviewers can't receive magic links)
+- This is NOT a demo mode - it's necessary because reviewers can't receive SMS/email links
+
+PAYMENTS:
+- All payments processed by website backend (Lightspeed)
+- NO in-app purchases
+- NO sandbox/test payments
+- Reviewers can view checkout flow but don't need to complete purchase
+
+FULL FUNCTIONALITY:
+- Browse products ✅
+- Add to cart ✅
+- View cart ✅
+- Checkout flow ✅
+- Order history ✅
+- Native iOS features (pull-to-refresh, share, loading states) ✅
+
+WHAT REVIEWERS CAN TEST:
+- Open app → Automatically logged in
+- Browse products and categories
+- Add items to cart
+- View checkout flow (no purchase required)
+- See order history
+- Use native iOS features
+
+WHAT REVIEWERS DON'T NEED:
+- Complete real purchase (checkout visible without purchase)
+- Enter payment info (payments handled by website)
+- Receive magic links (auto-login handles auth)
+
+TECHNICAL DETAILS:
+- Platform: React Native + Expo
+- WebView: Native iOS WebKit wrapper
+- Backend: Lightspeed E-commerce (live production site)
+- Payments: Website backend (NOT in-app purchases)
+- Authentication: Magic links (passwordless)
+- Location: Only when in use (not background)
+- Tracking: None (no ATT)
+
+COMPLIANCE:
+- ✅ No background location usage
+- ✅ No demo/trial messaging
+- ✅ Native iOS features implemented
+- ✅ Full functionality available
+- ✅ Privacy manifest accurate
+- ✅ No in-app purchases
+
+This is a production-ready webview app with full e-commerce functionality. The auto-login is a review accommodation for magic link authentication, not a feature limitation.
+

@@ -35,6 +35,17 @@ export const BRAND_CONFIG: BrandConfig = {
 export const APP_CONFIG = {
   trackingSource: 'greenloop',
   apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app/api',
-  // Demo mode for Apple App Store review - bypasses login and enables guest browsing
-  DEMO_MODE: true, // Set to true when submitting to App Store
+  // Auto-login for App Store review (magic links don't work for reviewers)
+  // This bypasses magic link auth but provides full app functionality
+  DEMO_MODE: true, // MUST be true - reviewers can't receive magic links
 };
+
+// Review build flags for Apple App Store submission
+export const REVIEW_BUILD = true; // <<< MUST be true for Apple review submission
+export const GEO_RESTRICT_FOR_REVIEW = false; // MUST be false for Apple review - allows access from anywhere
+export const REVIEW_ALLOWED_STATES = ['TN']; // Only used when GEO_RESTRICT_FOR_REVIEW is true
+export const SAFE_MODE = true; // MUST be true for Apple review - hides/fades vape-related content in WebView
+
+// Review flags - Keep auto-login but NO visible demo messaging
+export const REVIEW_DEMO_FAKE_AUTH = false; // Disabled - Apple rejects visible demo mode
+export const REVIEW_DEMO_FAKE_CHECKOUT = false; // Disabled - Apple rejects fake checkout

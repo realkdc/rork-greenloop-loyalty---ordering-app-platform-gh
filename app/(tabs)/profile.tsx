@@ -11,6 +11,7 @@ import Colors from "@/constants/colors";
 import { AUTH_CONFIG } from "@/config/authConfig";
 import { parseMagicLink } from '@/src/lib/auth/parseMagicLink';
 import { loginWithMagicLink } from '@/src/lib/auth/loginWithMagicLink';
+import { REVIEW_BUILD, REVIEW_DEMO_FAKE_AUTH, APP_CONFIG } from "@/constants/config";
 
 const MAGIC_CONFIRM_SELECTORS = [
   '.ec-notification',
@@ -34,7 +35,7 @@ const DEFAULT_HELPER_TOP = 168;
 
 export default function ProfileTab() {
   const ref = useRef<WebView>(null);
-  const [showHelper, setShowHelper] = useState<boolean>(false);
+  const [showHelper, setShowHelper] = useState<boolean>(APP_CONFIG.DEMO_MODE); // Always show in demo mode for App Review
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
   const [helperOffset, setHelperOffset] = useState<number>(DEFAULT_HELPER_TOP);
   const hasAppliedLinkRef = useRef<boolean>(false);
@@ -724,6 +725,13 @@ export default function ProfileTab() {
     };
   }, [clearBannerTimer]);
 
+  // Always show paste link banner in demo mode for App Store review
+  useEffect(() => {
+    if (APP_CONFIG.DEMO_MODE) {
+      setShowHelper(true);
+    }
+  }, []);
+
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
     
@@ -803,6 +811,7 @@ export default function ProfileTab() {
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
       />
+      
       {showHelper && (
         <View style={[styles.helperBanner, { top: helperOffset }]}> 
           <View style={styles.bannerContent}>

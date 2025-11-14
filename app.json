@@ -2,7 +2,7 @@
   "expo": {
     "name": "GreenHaus",
     "slug": "greenloop-loyalty-ordering-platform",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "greenhaus",
@@ -15,8 +15,8 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.greenhaus.customer",
-      "buildNumber": "13",
+      "bundleIdentifier": "com.greenhauscc.customer",
+      "buildNumber": "29",
       "associatedDomains": [
         "applinks:greenhaus-site.vercel.app"
       ],
@@ -27,7 +27,6 @@
         "NSLocationAlwaysUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
         "NSLocationWhenInUseUsageDescription": "GreenHaus uses your location to verify you're in a legal pickup or delivery area and to show nearby store options.",
         "UIBackgroundModes": [
-          "location",
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -79,7 +78,7 @@
         {
           "isAndroidForegroundServiceEnabled": true,
           "isAndroidBackgroundLocationEnabled": true,
-          "isIosBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": false,
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
         }
       ],
