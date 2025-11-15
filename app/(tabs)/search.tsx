@@ -1,39 +1,23 @@
 import React, { useRef } from "react";
-import type { WebView } from "react-native-webview";
-import { WebShell } from "@/components/WebShell";
+import { View } from "react-native";
 import { webviewRefs } from "./_layout";
-import { useFocusEffect } from "@react-navigation/native";
+import { WebShell } from "@/components/WebShell";
+import type { WebView } from "react-native-webview";
 
 export default function SearchTab() {
-  const ref = useRef<WebView>(null);
-  webviewRefs.search = ref;
+  const webviewRef = useRef<WebView>(null);
+  webviewRefs.search = webviewRef;
 
-  // Cache the initial URL to prevent unnecessary reloads
-  const initialUrl = React.useMemo(() => "https://greenhauscc.com/products", []);
-
-  useFocusEffect(React.useCallback(()=>{
-    console.log('[Search Tab] 🔍 Focused - requesting cart count update');
-    ref.current?.injectJavaScript(`
-      (function(){ 
-        try{ 
-          if (window.__ghCartCounter) {
-            window.__ghCartCounter.active = true;
-            window.postMessage(JSON.stringify({type: 'PING'}), '*');
-          }
-          window.dispatchEvent(new Event('focus')); 
-        }catch(e){} 
-        window.scrollTo(0,0); 
-        true; 
-      })();
-    `);
-    return undefined;
-  },[]));
+  // Simplified: Let WebView load naturally with initialUrl - no forced navigation
+  // Cart ID persists via localStorage/cookies automatically
 
   return (
-    <WebShell
-      ref={ref}
-      initialUrl={initialUrl}
-      tabKey="search"
-    />
+    <View style={{ flex: 1 }}>
+      <WebShell
+        ref={webviewRef}
+        initialUrl="https://greenhauscc.com/products"
+        tabKey="search"
+      />
+    </View>
   );
 }

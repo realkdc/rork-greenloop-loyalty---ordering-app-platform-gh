@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { View as RNView } from "react-native";
 import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback } from "react-native";
-import type { WebView } from "react-native-webview";
-import { useFocusEffect } from "@react-navigation/native";
-import { WebShell } from "@/components/WebShell";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { PromoCard } from "@/components/PromoCard";
 import { useApp } from "@/contexts/AppContext";
 import { getPromos, type PromoRecord } from "@/src/lib/promos";
@@ -10,6 +9,9 @@ import { webviewRefs } from "./_layout";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useActiveStoreId } from "@/src/hooks/useActiveStoreId";
+import { WebShell } from "@/components/WebShell";
+import { Platform } from "react-native";
+import type { WebView } from "react-native-webview";
 
 function normalizeStore(storeId: string | null | undefined): "cookeville" | "crossville" | null {
   if (!storeId) return null;
@@ -23,6 +25,7 @@ function normalizeStore(storeId: string | null | undefined): "cookeville" | "cro
 export default function HomeTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.home = ref;
+  const isFocused = useIsFocused();
   const { storeId, ready } = useActiveStoreId();
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
@@ -32,9 +35,6 @@ export default function HomeTab() {
   const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const promoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insets = useSafeAreaInsets();
-
-  // Cache the initial URL to prevent unnecessary reloads
-  const initialUrl = useMemo(() => "https://greenhauscc.com/", []);
 
   const activeStoreId = useMemo(() => {
     if (!ready) return null;
@@ -186,31 +186,29 @@ export default function HomeTab() {
     closeModal();
   }, [openPromoUrl, closeModal]);
 
+  // Simplified: Don't force navigation - let WebView load naturally
+  // This prevents reload loops and HTTP 400 errors
   useFocusEffect(
     React.useCallback(() => {
-      ref.current?.injectJavaScript(`
-        (function(){ 
-          try{ 
-            if (window.__ghCartCounter) {
-              window.__ghCartCounter.active = true;
-              window.postMessage(JSON.stringify({type: 'PING'}), '*');
-            }
-            window.dispatchEvent(new Event('focus')); 
-          }catch(e){} 
-          window.scrollTo(0,0); 
-          true; 
-        })();
-      `);
-      return undefined;
+      console.log('[HomeTab] 🏠 Tab focused - WebView will load with initialUrl');
+      // Let the WebView handle navigation naturally - no forced navigation
     }, [])
   );
 
+  // Debug: Log when rendering
+  useEffect(() => {
+    console.log('[HomeTab] 🎨 RENDERING - isFocused:', isFocused, 'ref available:', !!ref.current);
+  }, [isFocused, ref]);
+
+  console.log('[HomeTab] 🔍 CURRENT RENDER - isFocused:', isFocused, 'will render WebView:', isFocused);
+
   return (
     <View style={styles.container}>
-      <View style={styles.webShellWrapper}>
-        <WebShell ref={ref} initialUrl={initialUrl} tabKey="home" />
-      </View>
-
+      <WebShell
+        ref={ref}
+        initialUrl="https://greenhauscc.com/"
+        tabKey="home"
+      />
       {promos.length > 0 && !isModalOpen && (
         <TouchableOpacity
           onPress={openModal}
@@ -315,10 +313,7 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  webShellWrapper: {
-    flex: 1,
+    // WebView fills entire container
   },
   fab: {
     position: "absolute",

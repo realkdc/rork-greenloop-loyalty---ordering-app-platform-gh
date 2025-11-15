@@ -12,6 +12,7 @@ import { AUTH_CONFIG } from "@/config/authConfig";
 import { parseMagicLink } from '@/src/lib/auth/parseMagicLink';
 import { loginWithMagicLink } from '@/src/lib/auth/loginWithMagicLink';
 import { REVIEW_BUILD, REVIEW_DEMO_FAKE_AUTH, APP_CONFIG } from "@/constants/config";
+import { PRE_AUTH_COOKIES } from "@/services/preAuthCookies";
 
 const MAGIC_CONFIRM_SELECTORS = [
   '.ec-notification',
@@ -41,6 +42,9 @@ export default function ProfileTab() {
   const hasAppliedLinkRef = useRef<boolean>(false);
   const hasRequestedLinkRef = useRef<boolean>(false);
   const bannerDismissedRef = useRef<boolean>(false);
+  const helperVisibleRef = useRef<boolean>(APP_CONFIG.DEMO_MODE);
+  const helperSuppressedByCloudflareRef = useRef<boolean>(false);
+  const cloudflareVisibleRef = useRef<boolean>(false);
   const isLoggedInRef = useRef<boolean>(false);
   const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bannerTimerDeadlineRef = useRef<number>(0);
@@ -53,8 +57,29 @@ export default function ProfileTab() {
   // New: Auto magic link state
   const triedClipboardThisSession = useRef<boolean>(false);
   const [showToast, setShowToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    helperVisibleRef.current = showHelper;
+  }, [showHelper]);
   
   webviewRefs.profile = ref;
+
+  const showHelperBanner = useCallback((offset?: number) => {
+    if (typeof offset === 'number') {
+      setHelperOffset(offset);
+    }
+    if (cloudflareVisibleRef.current) {
+      helperSuppressedByCloudflareRef.current = true;
+      console.log('[Auth] Helper banner suppressed because Cloudflare verification is visible');
+      return;
+    }
+    helperSuppressedByCloudflareRef.current = false;
+    setShowHelper(true);
+  }, []);
+
+  const hideHelperBanner = useCallback(() => {
+    setShowHelper(false);
+  }, []);
 
   const applyMagicLink = useCallback((magicUrl: string) => {
     if (!ref.current || hasAppliedLinkRef.current) {
@@ -64,7 +89,7 @@ export default function ProfileTab() {
 
     console.log('🔐 Applying magic link:', magicUrl);
     hasAppliedLinkRef.current = true;
-    setShowHelper(false);
+    hideHelperBanner();
 
     const rawLink = magicUrl.trim();
 
@@ -286,6 +311,11 @@ export default function ProfileTab() {
   const lastToastRectRef = useRef<{ top?: number; bottom?: number; height?: number } | null>(null);
 
   const scheduleBannerFallback = useCallback((delay = 1200, fallbackOffset?: number) => {
+    if (cloudflareVisibleRef.current) {
+      console.log('[Auth] Cloudflare verification active - postponing helper banner fallback');
+      helperSuppressedByCloudflareRef.current = true;
+      return;
+    }
     const now = Date.now();
     const target = now + delay;
     if (bannerTimerRef.current && bannerTimerDeadlineRef.current && bannerTimerDeadlineRef.current <= target) {
@@ -307,6 +337,12 @@ export default function ProfileTab() {
         return;
       }
 
+      if (cloudflareVisibleRef.current) {
+        helperSuppressedByCloudflareRef.current = true;
+        console.log('[Auth] Helper banner display skipped because Cloudflare is still visible');
+        return;
+      }
+
       let offset = typeof fallbackOffset === 'number'
         ? Math.min(Math.max(fallbackOffset, 60), screenHeightRef.current - 200)
         : computeOffset(lastToastRectRef.current || undefined);
@@ -322,11 +358,11 @@ export default function ProfileTab() {
       }
 
       setHelperOffset(offset);
-      setShowHelper(true);
+      showHelperBanner();
       fallbackAttemptsRef.current = 0;
       console.log('[Auth] Helper banner displayed from fallback at offset', offset);
     }, delay);
-  }, [computeOffset]);
+  }, [computeOffset, showHelperBanner]);
 
   const updateHelperPosition = useCallback((rect?: { top?: number; bottom?: number; height?: number }) => {
     const offset = computeOffset(rect);
@@ -490,7 +526,7 @@ export default function ProfileTab() {
       // Set the flag after successful application
       hasAppliedLinkRef.current = true;
       clearBannerTimer();
-      setShowHelper(false);
+      hideHelperBanner();
       toastVisibleRef.current = false;
       lastToastRectRef.current = null;
       fallbackAttemptsRef.current = 0;
@@ -545,7 +581,7 @@ export default function ProfileTab() {
           fallbackAttemptsRef.current = 0;
           updateHelperPosition(undefined);
           clearBannerTimer();
-          setShowHelper(false);
+          hideHelperBanner();
           startConfirmationProbe();
           scheduleBannerFallback(2000, DEFAULT_HELPER_TOP);
           // Auto-paste disabled: pendingClipboardCheckRef.current = true;
@@ -572,12 +608,12 @@ export default function ProfileTab() {
           console.log('[Auth] Confirmation rect from web:', rect);
           updateHelperPosition(rect);
           clearBannerTimer();
-          setShowHelper(true);
+          showHelperBanner();
           // Auto-paste disabled: pendingClipboardCheckRef.current = true;
           fallbackAttemptsRef.current = 0;
         } else {
           updateHelperPosition(undefined);
-          setShowHelper(true);
+          showHelperBanner();
           // Auto-paste disabled: pendingClipboardCheckRef.current = true;
           scheduleBannerFallback(900, DEFAULT_HELPER_TOP + 36);
         }
@@ -592,7 +628,7 @@ export default function ProfileTab() {
               lastToastRectRef.current = msg.rect;
               updateHelperPosition(msg.rect);
             }
-            setShowHelper(false);
+            hideHelperBanner();
             pendingClipboardCheckRef.current = false;
             fallbackAttemptsRef.current = 0;
           } else {
@@ -603,10 +639,39 @@ export default function ProfileTab() {
               !bannerDismissedRef.current &&
               !isLoggedInRef.current
             ) {
-              setShowHelper(true);
+              showHelperBanner();
               // Auto-paste disabled: pendingClipboardCheckRef.current = true;
               scheduleBannerFallback(900, computeOffset(lastToastRectRef.current || undefined));
               fallbackAttemptsRef.current = 0;
+            }
+          }
+          break;
+        }
+        case 'CLOUDFLARE_CHALLENGE_STATE': {
+          const visible = !!msg.visible;
+          cloudflareVisibleRef.current = visible;
+          if (visible) {
+            helperSuppressedByCloudflareRef.current = helperVisibleRef.current || helperSuppressedByCloudflareRef.current;
+            clearBannerTimer();
+            hideHelperBanner();
+            const rect = msg.rect;
+            if (rect) {
+              const base = rect.bottom ?? rect.top ?? DEFAULT_HELPER_TOP;
+              const offset = Math.min(Math.max(base + 32, 60), screenHeightRef.current - 140);
+              setHelperOffset(offset);
+            }
+          } else {
+            if (helperSuppressedByCloudflareRef.current) {
+              helperSuppressedByCloudflareRef.current = false;
+              if (APP_CONFIG.DEMO_MODE) {
+                showHelperBanner(DEFAULT_HELPER_TOP);
+              } else if (
+                hasRequestedLinkRef.current &&
+                !bannerDismissedRef.current &&
+                !isLoggedInRef.current
+              ) {
+                scheduleBannerFallback(600, DEFAULT_HELPER_TOP);
+              }
             }
           }
           break;
@@ -628,7 +693,7 @@ export default function ProfileTab() {
             hasRequestedLinkRef.current = false;
             bannerDismissedRef.current = false;
             clearBannerTimer();
-            setShowHelper(false);
+            hideHelperBanner();
             setHelperOffset(DEFAULT_HELPER_TOP);
             suppressMagicBanner(true);
             toastVisibleRef.current = false;
@@ -653,7 +718,7 @@ export default function ProfileTab() {
           hasAppliedLinkRef.current = false;
           clearBannerTimer();
           setShowSuccess(true);
-          setShowHelper(false);
+          hideHelperBanner();
           setHelperOffset(DEFAULT_HELPER_TOP);
           suppressMagicBanner(true);
           toastVisibleRef.current = false;
@@ -667,34 +732,79 @@ export default function ProfileTab() {
     } catch (error) {
       console.error('Profile message error:', error);
     }
-  }, [clearBannerTimer, computeOffset, handleGetLinkClick, scheduleBannerFallback, startConfirmationProbe, suppressMagicBanner, updateHelperPosition]);
+  }, [clearBannerTimer, computeOffset, handleGetLinkClick, hideHelperBanner, scheduleBannerFallback, showHelperBanner, startConfirmationProbe, suppressMagicBanner, updateHelperPosition]);
 
   useFocusEffect(
     React.useCallback(() => {
-      console.log('[Profile Tab] 👤 Focused - requesting cart count update');
-
-      // Auto-paste disabled - users must manually tap "Paste Link" button
-      // if (pendingClipboardCheckRef.current && !triedClipboardThisSession.current && !hasAppliedLinkRef.current) {
-      //   console.log('[MagicLink] Running pending clipboard check on focus');
-      //   handleGetLinkClick();
-      // }
-      // Auto-paste disabled: pendingClipboardCheckRef.current = false;
-
-      ref.current?.injectJavaScript(`
-        (function(){ 
-          try{ 
-            if (window.__ghCartCounter) {
-              window.__ghCartCounter.active = true;
-              window.postMessage(JSON.stringify({type: 'PING'}), '*');
-            }
-            window.dispatchEvent(new Event('focus')); 
-          }catch(e){} 
-          true; 
-        })();
-      `);
+      console.log('[Profile Tab] 👤 Focused - navigating to account page');
       
-      return undefined;
-    }, [handleGetLinkClick])
+      // Small delay to ensure webviewRef is ready
+      const timer = setTimeout(() => {
+        if (ref?.current) {
+          console.log('[Profile Tab] ✅ WebView ref is ready, navigating to account');
+          ref.current.injectJavaScript(`
+            (function() {
+              var currentUrl = window.location.href;
+              var currentPath = window.location.pathname;
+              var currentHash = window.location.hash;
+              
+              console.log('[Profile Tab] 📍 Current URL:', currentUrl);
+              console.log('[Profile Tab] 📍 Current path:', currentPath);
+              console.log('[Profile Tab] 📍 Current hash:', currentHash);
+              
+              // Navigate to account page if not already there
+              var isOnAccountPage = currentPath.includes('/account') || currentPath.includes('/products/account');
+              
+              if (!isOnAccountPage) {
+                console.log('[Profile Tab] 🚀 Navigating to account page');
+                // Try /products/account first (Ecwid's account page)
+                window.location.href = 'https://greenhauscc.com/products/account';
+              } else {
+                console.log('[Profile Tab] ℹ️ Already on account page');
+                
+                // Re-inject auth cookies to ensure persistence when tab becomes active
+                try {
+                  const DEMO_MODE = ${APP_CONFIG.DEMO_MODE};
+                  if (DEMO_MODE) {
+                    const COOKIES = ${JSON.stringify(PRE_AUTH_COOKIES)};
+                    const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+                    
+                    console.log('[Profile Tab] 🍪 Re-injecting cookies on tab focus');
+                    for (const cookie of COOKIES) {
+                      let cookieStr = \`\${cookie.name}=\${cookie.value}; path=\${cookie.path || '/'}; expires=\${expires};\`;
+                      if (cookie.domain) {
+                        cookieStr += \` domain=\${cookie.domain};\`;
+                      }
+                      if (cookie.secure) {
+                        cookieStr += ' secure;';
+                      }
+                      if (cookie.sameSite) {
+                        cookieStr += \` SameSite=\${cookie.sameSite === 'no_restriction' ? 'None' : cookie.sameSite};\`;
+                      }
+                      document.cookie = cookieStr;
+                    }
+                    console.log('[Profile Tab] ✅ Cookies re-injected');
+                  }
+                  
+                  if (window.__ghCartCounter) {
+                    window.__ghCartCounter.active = true;
+                    window.postMessage(JSON.stringify({type: 'PING'}), '*');
+                  }
+                  window.dispatchEvent(new Event('focus'));
+                } catch(e) {
+                  console.error('[Profile Tab] Error on focus:', e);
+                }
+              }
+            })();
+            true;
+          `);
+        } else {
+          console.warn('[Profile Tab] ⚠️ WebView ref not available');
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }, [])
   );
 
   useEffect(() => {
@@ -728,9 +838,9 @@ export default function ProfileTab() {
   // Always show paste link banner in demo mode for App Store review
   useEffect(() => {
     if (APP_CONFIG.DEMO_MODE) {
-      setShowHelper(true);
+      showHelperBanner(DEFAULT_HELPER_TOP);
     }
-  }, []);
+  }, [showHelperBanner]);
 
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
@@ -806,7 +916,7 @@ export default function ProfileTab() {
     <View style={styles.container}>
       <WebShell
         ref={ref}
-        initialUrl={`https://${AUTH_CONFIG.host}/account`}
+        initialUrl={`https://${AUTH_CONFIG.host}/products/account`}
         tabKey="profile"
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleMessage}
@@ -839,7 +949,7 @@ export default function ProfileTab() {
               onPress={() => {
                 bannerDismissedRef.current = true;
                 clearBannerTimer();
-                setShowHelper(false);
+                hideHelperBanner();
                 setHelperOffset(DEFAULT_HELPER_TOP);
               }}
             >

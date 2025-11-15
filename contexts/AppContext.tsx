@@ -6,6 +6,8 @@ import { TrackingService } from '@/services/tracking';
 import { CampaignService } from '@/services/campaigns';
 import { useAuth } from './AuthContext';
 import { MOCK_REWARDS } from '@/mocks/rewards';
+import { cartBadge } from '@/lib/cartBadge';
+import { cartState } from '@/lib/cartState';
 import type { Transaction, Reward, Campaign } from '@/types';
 
 interface AppState {
@@ -65,6 +67,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         if (!Number.isNaN(parsed) && parsed >= 0) {
           const normalized = Math.min(999, parsed);
           console.log('[AppContext] 🧰 Async hydrated cart count:', normalized);
+          
+          // CRITICAL: Update cartBadge FIRST before setting internal state
+          // This ensures the badge has the correct value when listeners subscribe
+          cartBadge.set(normalized);
+          console.log('[AppContext] ✅ Set cartBadge to hydrated value:', normalized);
+          
           setCartCountInternal(normalized);
         }
       }
@@ -77,6 +85,16 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     hydrateCartCount();
   }, [hydrateCartCount]);
 
+  // Subscribe to cartBadge changes to keep state in sync
+  useEffect(() => {
+    const unsubscribe = cartBadge.on((count) => {
+      console.log('[AppContext] 📢 cartBadge update received:', count);
+      setCartCountInternal(count);
+      persistCartCount(count);
+    });
+    return unsubscribe;
+  }, [persistCartCount]);
+
   const setCartCount = useCallback((count: number | null) => {
     console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
     if (count === null || count === undefined) {
@@ -84,6 +102,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       return;
     }
     const normalized = Math.max(0, Math.min(999, Math.floor(count)));
+    
+    // Update cartBadge manager (single source of truth)
+    console.log('[AppContext] 📤 Updating cartBadge with:', normalized);
+    cartBadge.set(normalized);
+    
+    // Also update internal state directly for immediate UI update
     setCartCountInternal(prev => {
       if (prev === normalized) {
         console.log('[AppContext] ⏭️ Cart count unchanged, skipping state update');
@@ -91,9 +115,6 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       }
       console.log('[AppContext] ✅ Updating cart count from', prev, 'to', normalized);
       persistCartCount(normalized);
-      setTimeout(() => {
-        console.log('[AppContext] 🔍 Verification - internal state is now:', normalized);
-      }, 100);
       return normalized;
     });
   }, [persistCartCount]);
@@ -114,6 +135,18 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     const initialize = async () => {
       try {
         console.log('AppContext: Starting initialization');
+        
+        // CRITICAL: Hydrate cart state EARLY so it's available before WebView loads
+        // This ensures cart persistence across app restarts
+        console.log('[AppContext] 🛒 Hydrating cart state from storage...');
+        await cartState.hydrateFromStorage();
+        const cartSnapshot = cartState.get();
+        if (cartSnapshot) {
+          console.log('[AppContext] ✅ Cart state hydrated - cartId:', cartSnapshot.local?.['PSecwid__86917525PScart'] ? 'present' : 'missing');
+        } else {
+          console.log('[AppContext] ℹ️ No cart state found in storage');
+        }
+        
         const state = await StorageService.getOnboardingState();
         setOnboardingCompletedState(state?.completedOnboarding || false);
         setSelectedStoreIdState(state?.activeStoreId || null);

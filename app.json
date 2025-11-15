@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhauscc.customer",
-      "buildNumber": "29",
+      "buildNumber": "30",
       "associatedDomains": [
         "applinks:greenhaus-site.vercel.app"
       ],

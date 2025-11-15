@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
+import React from "react";
 
 
 export const webviewRefs: Record<string, any> = {
@@ -37,7 +38,7 @@ const TAB_URLS: Record<string, string> = {
   profile: Store.PROFILE,
 };
 
-export default function Layout() {
+function TabsLayout() {
   const { cartCount } = useApp();
 
   console.log('[TabLayout] 🎨 Rendering tabs');
@@ -94,71 +95,9 @@ export default function Layout() {
             }}
             listeners={{
               tabPress: () => {
-                try {
-                  const ref = webviewRefs[name];
-                  const current = ref?.current;
-                  if (current) {
-                    if (name === 'home') {
-                      console.log(`[Tabs] 🏠 Home tab pressed → navigating to ${Store.HOME}`);
-                      const navScript = `
-                        (function(){
-                          try {
-                            const currentUrl = window.location.href;
-                            const homeUrl = '${Store.HOME}';
-                            console.log('[WebView] Current URL:', currentUrl);
-                            console.log('[WebView] Navigating to home:', homeUrl);
-                            
-                            if (currentUrl.toLowerCase().replace(/\\/$/, '') !== homeUrl.toLowerCase().replace(/\\/$/, '')) {
-                              window.location.href = homeUrl;
-                            } else {
-                              window.scrollTo(0, 0);
-                              window.location.reload();
-                            }
-                          } catch(e) {
-                            console.error('[WebView] Navigation error:', e);
-                          }
-                          return true;
-                        })();
-                      `;
-                      try { current.injectJavaScript(navScript); } catch {}
-                      setTimeout(() => {
-                        try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
-                      }, 300);
-                    } else {
-                      console.log(`[Tabs] 🔄 tabPress on ${name} → reload + PING`);
-                      try { current.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true })); } catch {}
-                      try { current.postMessage(JSON.stringify({ type: 'PING' })); } catch {}
-                      const targetUrl = TAB_URLS[name];
-                      if (targetUrl) {
-                        const navigationScript = `
-                          (function(){
-                            try {
-                              const desired = '${targetUrl}';
-                              const normalizedDesired = desired.replace(/\\/$/, '');
-                              const normalizedCurrent = window.location.href.replace(/\\/$/, '');
-                              if (normalizedCurrent !== normalizedDesired) {
-                                window.location.href = desired;
-                              } else {
-                                window.scrollTo(0, 0);
-                                window.dispatchEvent(new Event('focus'));
-                              }
-                            } catch (navError) {
-                              console.error('[WebView] Navigation error for ${name}:', navError);
-                            }
-                            return true;
-                          })();
-                        `;
-                        try { current.injectJavaScript(navigationScript); } catch {}
-                      } else {
-                        try { current.reload(); } catch {}
-                      }
-                    }
-                  } else {
-                    console.log(`[Tabs] ⚠️ No webviewRef for ${name}`);
-                  }
-                } catch (e) {
-                  console.log('[Tabs] tabPress error:', e);
-                }
+                console.log(`[Tabs] 📱 Tab ${name} pressed`);
+                // Navigation handled by each tab's useFocusEffect
+                // This prevents race conditions with webviewRef availability
               },
             }}
           />
@@ -199,3 +138,7 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
   },
 });
+
+export default function Layout() {
+  return <TabsLayout />;
+}
