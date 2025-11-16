@@ -44,7 +44,11 @@ export const APP_CONFIG = {
 export const REVIEW_BUILD = true; // <<< MUST be true for Apple review submission
 export const GEO_RESTRICT_FOR_REVIEW = false; // MUST be false for Apple review - allows access from anywhere
 export const REVIEW_ALLOWED_STATES = ['TN']; // Only used when GEO_RESTRICT_FOR_REVIEW is true
-export const SAFE_MODE = true; // MUST be true for Apple review - hides/fades vape-related content in WebView
+export const SAFE_MODE = false; // Disable content blurring in development; set to true for Apple review builds
+// Hide vape-related tiles/categories without using SAFE_MODE blurring
+export const HIDE_VAPE_CONTENT = true;
+// Temporary debug switch: when true, disable nearly all WebView injections/customizations
+export const WEBVIEW_MINIMAL_MODE = true;
 
 // Review flags - Keep auto-login but NO visible demo messaging
 export const REVIEW_DEMO_FAKE_AUTH = false; // Disabled - Apple rejects visible demo mode

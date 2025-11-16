@@ -1,15 +1,17 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform, AppState, Alert, Share, ToastAndroid } from 'react-native';
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, StyleSheet, ActivityIndicator, Platform, AppState, Alert, Share, ToastAndroid, Text } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
 import type { WebViewProps } from 'react-native-webview';
+import type WebViewType from 'react-native-webview';
 import { useApp } from '@/contexts/AppContext';
 import { useRouter } from 'expo-router';
-import { APP_CONFIG, REVIEW_BUILD, SAFE_MODE, REVIEW_DEMO_FAKE_AUTH, REVIEW_DEMO_FAKE_CHECKOUT } from '@/constants/config';
+import { APP_CONFIG, REVIEW_BUILD, SAFE_MODE, HIDE_VAPE_CONTENT, REVIEW_DEMO_FAKE_AUTH, REVIEW_DEMO_FAKE_CHECKOUT, WEBVIEW_MINIMAL_MODE } from '@/constants/config';
 import { cartState, type CartStorageSnapshot } from '@/lib/cartState';
 import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { FakeDemoOrdersService, type FakeDemoOrder } from '@/services/fakeDemoOrders';
 import { PRE_AUTH_COOKIES } from '@/services/preAuthCookies';
+import { debugLog, debugWarn, debugError } from '@/lib/logger';
 
 const REVIEW_DEMO_MESSAGE = 'This is a demo-only build for App Review. Login and Checkout are intentionally disabled.';
 
@@ -49,11 +51,35 @@ const CHECKOUT_PATTERNS = [
 const INJECTED_CSS = `
 (function(){
   const SAFE_MODE = ${SAFE_MODE};
+  const HIDE_VAPE_CONTENT = ${HIDE_VAPE_CONTENT};
   
   // Inject base CSS
   let css = \`
     /* REVERT hero slider hiding: show it again */
     .ins-tile__wrap, .ins-tile__slide, .ins-tile__slide-content-inner { display: initial !important; opacity: initial !important; }
+
+    /* Force high-quality images - remove any blur/backdrop filters applied by storefront */
+    * {
+      filter: none !important;
+      -webkit-filter: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+    img {
+      filter: none !important;
+      -webkit-filter: none !important;
+      image-rendering: -webkit-optimize-contrast !important;
+      image-rendering: crisp-edges !important;
+    }
+    picture, .ec-product-card__image, .grid-product__image, .ecwid-productBrowser-image, .product-card__image, .product-item__image {
+      filter: none !important;
+      -webkit-filter: none !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+
+    /* REMOVED: Overly aggressive spinner hiding was preventing cart page from loading */
+    /* The 5-second timeout in each tab will handle stuck loading states instead */
 
     /* Keep it clean & app-like */
     /* 1) Hide breadcrumbs */
@@ -71,7 +97,7 @@ const INJECTED_CSS = `
     main, .ec-store { padding-bottom: 16px !important; }
   \`;
 
-  if (SAFE_MODE) {
+  if (SAFE_MODE || HIDE_VAPE_CONTENT) {
     css += \`
     /* SAFE MODE: Hide restricted tiles instantly (prevents flash) */
     #ins-tile__category-item-GOrgE,
@@ -86,6 +112,7 @@ const INJECTED_CSS = `
       pointer-events: none !important;
     }
 
+    /* Hide vape category cards on Browse (Disposables & Cartridges) */
     .grid-category--id-180876996,
     .grid-category--id-180876996 *,
     a[data-category-id="180876996"],
@@ -197,11 +224,11 @@ const REVIEW_LABEL_SCRIPT = `
 (function(){
   const REVIEW_BUILD = ${REVIEW_BUILD};
   if (!REVIEW_BUILD) {
-    console.log('[ReviewLabels] Not a review build, skipping label tweaks');
+    debugLog('[ReviewLabels] Not a review build, skipping label tweaks');
     return;
   }
   
-  console.log('[ReviewLabels] 🏷️ Review build active - applying label softening');
+  debugLog('[ReviewLabels] 🏷️ Review build active - applying label softening');
   
   // Track processed nodes to avoid re-processing
   const processedNodes = new WeakSet();
@@ -232,7 +259,7 @@ const REVIEW_LABEL_SCRIPT = `
     style.type = 'text/css';
     style.appendChild(document.createTextNode(css));
     document.head.appendChild(style);
-    console.log('[ReviewLabels] ✅ Review CSS injected');
+    debugLog('[ReviewLabels] ✅ Review CSS injected');
   }
   
   // Text replacement mapping
@@ -262,7 +289,7 @@ const REVIEW_LABEL_SCRIPT = `
     if (changed) {
       node.textContent = newText;
       processedNodes.add(node);
-      console.log('[ReviewLabels] 📝 Replaced text:', originalText, '->', newText);
+      debugLog('[ReviewLabels] 📝 Replaced text:', originalText, '->', newText);
       return true;
     }
     
@@ -311,7 +338,7 @@ const REVIEW_LABEL_SCRIPT = `
     }
     
     if (replacedCount > 0) {
-      console.log('[ReviewLabels] ✅ Processed', replacedCount, 'text nodes');
+      debugLog('[ReviewLabels] ✅ Processed', replacedCount, 'text nodes');
     }
   }
   
@@ -322,7 +349,7 @@ const REVIEW_LABEL_SCRIPT = `
     try {
       walkTextNodes(document.body);
     } catch (err) {
-      console.error('[ReviewLabels] ❌ Error processing labels:', err);
+      debugError('[ReviewLabels] ❌ Error processing labels:', err);
     } finally {
       isProcessing = false;
     }
@@ -361,12 +388,12 @@ const REVIEW_LABEL_SCRIPT = `
   setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      console.log('[ReviewLabels] 🔄 URL changed, re-processing labels');
+      debugLog('[ReviewLabels] 🔄 URL changed, re-processing labels');
       setTimeout(processLabels, 500);
     }
   }, 500);
   
-  console.log('[ReviewLabels] ✅ Review label system initialized');
+  debugLog('[ReviewLabels] ✅ Review label system initialized');
 })();
 true;
 `;
@@ -404,7 +431,7 @@ true;
 // ============================================================================
 const CART_ID_PRESERVATION_SCRIPT = `
 (function(){
-  console.log('[CartPreservation] 🛡️ Installing cart ID preservation script');
+  debugLog('[CartPreservation] 🛡️ Installing cart ID preservation script');
   
   // Store the original cart ID when page loads
   let preservedCartId = null;
@@ -416,7 +443,7 @@ const CART_ID_PRESERVATION_SCRIPT = `
         if (cart && cart.cartId) {
           preservedCartId = cart.cartId;
           preservedCartData = JSON.stringify(cart);
-          console.log('[CartPreservation] 💾 Preserved cart ID:', preservedCartId);
+          debugLog('[CartPreservation] 💾 Preserved cart ID:', preservedCartId);
           
           // Also store in localStorage as backup
           try {
@@ -425,7 +452,7 @@ const CART_ID_PRESERVATION_SCRIPT = `
               localStorage.setItem('__ghPreservedCartData', preservedCartData);
             }
           } catch(e) {
-            console.log('[CartPreservation] ⚠️ Failed to store in localStorage:', e);
+            debugLog('[CartPreservation] ⚠️ Failed to store in localStorage:', e);
           }
         }
       });
@@ -443,24 +470,24 @@ const CART_ID_PRESERVATION_SCRIPT = `
         if (storedData) {
           preservedCartData = storedData;
         }
-        console.log('[CartPreservation] 🔄 Restored cart ID from localStorage:', preservedCartId);
+        debugLog('[CartPreservation] 🔄 Restored cart ID from localStorage:', preservedCartId);
       }
     } catch(e) {
-      console.log('[CartPreservation] ⚠️ Failed to restore from localStorage:', e);
+      debugLog('[CartPreservation] ⚠️ Failed to restore from localStorage:', e);
     }
     
     // Check if current cart ID matches preserved one
     if (preservedCartId && window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
       window.Ecwid.Cart.get(function(cart) {
         if (cart && cart.cartId && cart.cartId !== preservedCartId) {
-          console.error('[CartPreservation] ⚠️⚠️⚠️ Cart ID changed from', preservedCartId, 'to', cart.cartId);
-          console.error('[CartPreservation] ⚠️ Attempting to restore old cart ID...');
+          debugError('[CartPreservation] ⚠️⚠️⚠️ Cart ID changed from', preservedCartId, 'to', cart.cartId);
+          debugError('[CartPreservation] ⚠️ Attempting to restore old cart ID...');
           
           // Try to restore the old cart by rehydrating localStorage
           // The cart data should be in Ecwid's localStorage key
           try {
             const cartKeys = Object.keys(localStorage).filter(k => k.includes('cart') && k.includes('Ecwid'));
-            console.log('[CartPreservation] 🔍 Found cart keys:', cartKeys);
+            debugLog('[CartPreservation] 🔍 Found cart keys:', cartKeys);
             
             // Force Ecwid to reload cart from localStorage
             if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
@@ -468,18 +495,18 @@ const CART_ID_PRESERVATION_SCRIPT = `
               setTimeout(function() {
                 window.Ecwid.Cart.get(function(newCart) {
                   if (newCart && newCart.cartId === preservedCartId) {
-                    console.log('[CartPreservation] ✅ Successfully restored old cart ID!');
+                    debugLog('[CartPreservation] ✅ Successfully restored old cart ID!');
                   } else {
-                    console.error('[CartPreservation] ❌ Failed to restore old cart ID. Current:', newCart?.cartId);
+                    debugError('[CartPreservation] ❌ Failed to restore old cart ID. Current:', newCart?.cartId);
                   }
                 });
               }, 500);
             }
           } catch(e) {
-            console.error('[CartPreservation] ❌ Error restoring cart:', e);
+            debugError('[CartPreservation] ❌ Error restoring cart:', e);
           }
         } else if (cart && cart.cartId === preservedCartId) {
-          console.log('[CartPreservation] ✅ Cart ID matches preserved ID:', preservedCartId);
+          debugLog('[CartPreservation] ✅ Cart ID matches preserved ID:', preservedCartId);
         }
       });
     }
@@ -502,18 +529,18 @@ const CART_ID_PRESERVATION_SCRIPT = `
       window.Ecwid.OnCartChanged.add(function(cart) {
         if (cart && cart.cartId) {
           if (preservedCartId && cart.cartId !== preservedCartId) {
-            console.error('[CartPreservation] 🚨 Cart ID changed during operation!', preservedCartId, '→', cart.cartId);
+            debugError('[CartPreservation] 🚨 Cart ID changed during operation!', preservedCartId, '→', cart.cartId);
             // Try to restore
             restoreCartId();
           } else {
             preservedCartId = cart.cartId;
-            console.log('[CartPreservation] ✅ Cart ID updated:', cart.cartId);
+            debugLog('[CartPreservation] ✅ Cart ID updated:', cart.cartId);
           }
         }
       });
-      console.log('[CartPreservation] ✅ Registered OnCartChanged listener');
+      debugLog('[CartPreservation] ✅ Registered OnCartChanged listener');
     } catch(e) {
-      console.log('[CartPreservation] ⚠️ Failed to register OnCartChanged:', e);
+      debugLog('[CartPreservation] ⚠️ Failed to register OnCartChanged:', e);
     }
   }
   
@@ -526,7 +553,7 @@ const CART_ID_PRESERVATION_SCRIPT = `
     }
   }, 5000);
   
-  console.log('[CartPreservation] ✅ Cart preservation script installed');
+  debugLog('[CartPreservation] ✅ Cart preservation script installed');
 })();
 true;
 `;
@@ -584,8 +611,8 @@ true;
 // This script was interfering with Cloudflare challenges on the account/login page
 const AGE_GATE_BYPASS_SCRIPT = `
 (function(){
-  console.log('[AgeGate] ✅ Age gate bypass DISABLED - using InAppAgeVerification cookie instead');
-  console.log('[AgeGate] This prevents interference with Cloudflare challenges on account/login pages');
+  debugLog('[AgeGate] ✅ Age gate bypass DISABLED - using InAppAgeVerification cookie instead');
+  debugLog('[AgeGate] This prevents interference with Cloudflare challenges on account/login pages');
 })();
 true;
 `;
@@ -597,11 +624,11 @@ const COOKIE_INJECTION_SCRIPT = `
   const COOKIES = ${JSON.stringify(PRE_AUTH_COOKIES)};
   
   if (!DEMO_MODE) {
-    console.log('[CookieInjection] Not in demo mode, skipping cookie injection');
+    debugLog('[CookieInjection] Not in demo mode, skipping cookie injection');
     return;
   }
   
-  console.log('[CookieInjection] 🍪 Demo mode active - injecting auth cookies');
+  debugLog('[CookieInjection] 🍪 Demo mode active - injecting auth cookies');
   
   // Check if cookies are already set
   function isCookieSet(name) {
@@ -637,15 +664,15 @@ const COOKIE_INJECTION_SCRIPT = `
       // Set the cookie
       try {
         document.cookie = cookieStr;
-        console.log('[CookieInjection] ✅ Injected cookie:', cookie.name);
+        debugLog('[CookieInjection] ✅ Injected cookie:', cookie.name);
         injected++;
       } catch (err) {
-        console.error('[CookieInjection] ❌ Failed to inject cookie:', cookie.name, err);
+        debugError('[CookieInjection] ❌ Failed to inject cookie:', cookie.name, err);
       }
     }
     
     if (injected > 0) {
-      console.log(\`[CookieInjection] 🎉 Successfully injected \${injected} cookies\`);
+      debugLog(\`[CookieInjection] 🎉 Successfully injected \${injected} cookies\`);
     }
   }
   
@@ -657,23 +684,23 @@ const COOKIE_INJECTION_SCRIPT = `
     document.addEventListener('DOMContentLoaded', injectCookies);
   }
   
-  console.log('[CookieInjection] ✅ Cookie injection initialized');
+  debugLog('[CookieInjection] ✅ Cookie injection initialized');
 })();
 true;
 `;
 
 const CART_COUNTER_SCRIPT = `
 (function(){
-  console.log('[CartCounter] 🚀 Starting cart counter script');
+  debugLog('[CartCounter] 🚀 Starting cart counter script');
   if (window.__ghCartCounter?.installed) {
-    console.log('[CartCounter] ⏭️ Already installed, skipping');
+    debugLog('[CartCounter] ⏭️ Already installed, skipping');
     return;
   }
   let persisted = -1;
   try { persisted = parseInt(sessionStorage.getItem('__ghLastCount')||''); } catch {}
   window.__ghCartCounter = { installed:true, lastValue: Number.isFinite(persisted)&&persisted>0?persisted:0, active: true, ready:false, confirmedEmpty:false, synced:false, pending:null, lastStorageJson:null };
   window.__ghCC = window.__ghCartCounter;
-  console.log('[CartCounter] ✅ Initialized with persisted value:', window.__ghCartCounter.lastValue);
+  debugLog('[CartCounter] ✅ Initialized with persisted value:', window.__ghCartCounter.lastValue);
   
   function isCartPage(){ return /\\/cart(\\b|\\/|$)/i.test(location.pathname) || /#checkout/i.test(location.hash); }
   function persist(n){ try{ sessionStorage.setItem('__ghLastCount', String(n)); }catch{} }
@@ -697,18 +724,18 @@ const CART_COUNTER_SCRIPT = `
       const raw = el.getAttribute('data-count')||el.getAttribute('data-cart-count')||(el.textContent||'').trim();
       const n = parseSafe(raw);
       if (n!==null) {
-        console.log('[CartCounter] 🎯 Found cart count via DOM selector:', s, '= value:', n);
+        debugLog('[CartCounter] 🎯 Found cart count via DOM selector:', s, '= value:', n);
         return n;
       }
     }
     if (isCartPage()){
       const items = document.querySelectorAll('.ec-cart__products li, [data-cart-item], .cart__item, .ec-cart-item');
       if (items.length>0) {
-        console.log('[CartCounter] 🎯 Found cart items on cart page:', items.length);
+        debugLog('[CartCounter] 🎯 Found cart items on cart page:', items.length);
         return items.length;
       }
     }
-    console.log('[CartCounter] ❌ No cart count found via DOM probe');
+    debugLog('[CartCounter] ❌ No cart count found via DOM probe');
     return null;
   }
   function shouldCaptureKey(key){
@@ -785,25 +812,25 @@ const CART_COUNTER_SCRIPT = `
   }
   function post(rawValue, fromAPI){
     const state = window.__ghCartCounter;
-    console.log('[CartCounter] 📤 post() called - value:', rawValue, 'fromAPI:', fromAPI, 'active:', state.active, 'synced:', state.synced, 'lastValue:', state.lastValue);
+    debugLog('[CartCounter] 📤 post() called - value:', rawValue, 'fromAPI:', fromAPI, 'active:', state.active, 'synced:', state.synced, 'lastValue:', state.lastValue);
 
     let n = rawValue;
     if (n === null || n === undefined){
       if (!state.ready){
-        console.log('[CartCounter] ⚠️ Not ready and no value, skipping');
+        debugLog('[CartCounter] ⚠️ Not ready and no value, skipping');
         return;
       }
       n = state.lastValue;
-      console.log('[CartCounter] Using last known value:', n);
+      debugLog('[CartCounter] Using last known value:', n);
     }
 
     const prev = state.lastValue;
     if (n === 0 && prev > 0 && isCartPage() && !state.confirmedEmpty && !fromAPI){
-      console.log('[CartCounter] ⚠️ On cart page with 0 items but not confirmed, skipping');
+      debugLog('[CartCounter] ⚠️ On cart page with 0 items but not confirmed, skipping');
       return;
     }
     if (n === 0 && !state.ready && !fromAPI){
-      console.log('[CartCounter] ⏭️ Ignoring zero before ready state');
+      debugLog('[CartCounter] ⏭️ Ignoring zero before ready state');
       return;
     }
 
@@ -823,7 +850,7 @@ const CART_COUNTER_SCRIPT = `
 
     const unchanged = state.synced && n === prev;
     if (unchanged && !fromAPI){
-      console.log('[CartCounter] ⏭️ Value unchanged and already synced, skipping');
+      debugLog('[CartCounter] ⏭️ Value unchanged and already synced, skipping');
       return;
     }
 
@@ -842,7 +869,7 @@ const CART_COUNTER_SCRIPT = `
         state.lastStorageJson = null;
       }
     }catch(err){
-      console.log('[CartCounter] ⚠️ Failed to capture storage snapshot', err);
+      debugLog('[CartCounter] ⚠️ Failed to capture storage snapshot', err);
     }
 
     const now = Date.now();
@@ -858,17 +885,17 @@ const CART_COUNTER_SCRIPT = `
     if (!window.ReactNativeWebView){
       pending.attempts += 1;
       if (now - pending.firstAttempt > 15000){
-        console.log('[CartCounter] 🛑 Bridge not ready after multiple attempts, giving up');
+        debugLog('[CartCounter] 🛑 Bridge not ready after multiple attempts, giving up');
         state.pending = null;
         return;
       }
-      console.log('[CartCounter] ⚠️ Bridge not ready (attempt ' + pending.attempts + ') - retrying');
+      debugLog('[CartCounter] ⚠️ Bridge not ready (attempt ' + pending.attempts + ') - retrying');
       scheduleRetry(Math.min(1200, 200 + pending.attempts * 200));
       return;
     }
 
     try{
-      console.log('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
+      debugLog('[CartCounter] 📢 Sending CART_COUNT message to React Native with value:', n);
       window.ReactNativeWebView.postMessage(JSON.stringify(payload));
       state.synced = true;
       state.pending = null;
@@ -876,53 +903,53 @@ const CART_COUNTER_SCRIPT = `
       const retryNow = Date.now();
       pending.attempts += 1;
       if (retryNow - pending.firstAttempt > 15000){
-        console.log('[CartCounter] ❌ Failed to post after multiple attempts, dropping.', e);
+        debugLog('[CartCounter] ❌ Failed to post after multiple attempts, dropping.', e);
         state.pending = null;
         return;
       }
-      console.log('[CartCounter] ❌ Error posting to bridge, retrying...', e);
+      debugLog('[CartCounter] ❌ Error posting to bridge, retrying...', e);
       scheduleRetry(Math.min(1200, 200 + pending.attempts * 200));
     }
   }
   function tryAPI(){
-    console.log('[CartCounter] 🔍 Trying Ecwid API, Ecwid available:', !!window.Ecwid);
+    debugLog('[CartCounter] 🔍 Trying Ecwid API, Ecwid available:', !!window.Ecwid);
     if (!window.Ecwid) return false;
     try{
       if (window.Ecwid.Cart?.get){
-        console.log('[CartCounter] ✅ Using Ecwid.Cart.get');
+        debugLog('[CartCounter] ✅ Using Ecwid.Cart.get');
         window.Ecwid.Cart.get(function(cart){ 
           const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
-          console.log('[CartCounter] 🛍️ Ecwid.Cart.get returned:', c);
+          debugLog('[CartCounter] 🛍️ Ecwid.Cart.get returned:', c);
           post(c, true); 
         });
         return true;
       }
     }catch(e){
-      console.log('[CartCounter] ❌ Error with Ecwid.Cart.get:', e);
+      debugLog('[CartCounter] ❌ Error with Ecwid.Cart.get:', e);
     }
     try{
       if (window.Ecwid.getCart){
-        console.log('[CartCounter] ✅ Using Ecwid.getCart');
+        debugLog('[CartCounter] ✅ Using Ecwid.getCart');
         window.Ecwid.getCart(function(cart){ 
           const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
-          console.log('[CartCounter] 🛍️ Ecwid.getCart returned:', c);
+          debugLog('[CartCounter] 🛍️ Ecwid.getCart returned:', c);
           post(c, true); 
         });
         return true;
       }
     }catch(e){
-      console.log('[CartCounter] ❌ Error with Ecwid.getCart:', e);
+      debugLog('[CartCounter] ❌ Error with Ecwid.getCart:', e);
     }
     return false;
   }
   function check(){
-    console.log('[CartCounter] 🔎 check() triggered at', new Date().toLocaleTimeString());
+    debugLog('[CartCounter] 🔎 check() triggered at', new Date().toLocaleTimeString());
     const viaAPI = tryAPI();
     if (!viaAPI){ 
-      console.log('[CartCounter] No API available, trying DOM probe');
+      debugLog('[CartCounter] No API available, trying DOM probe');
       const d = domProbe(); 
       if (d!==null) post(d, false); 
-      else console.log('[CartCounter] ❌ No count found via DOM');
+      else debugLog('[CartCounter] ❌ No count found via DOM');
     }
   }
   let t; function debounced(){ clearTimeout(t); t=setTimeout(check,300); }
@@ -934,11 +961,11 @@ const CART_COUNTER_SCRIPT = `
     try{ 
       const m = JSON.parse(event.data); 
       if (m.type==='PING'){ 
-        console.log('[CartCounter] 🏓 Received PING, running check');
+        debugLog('[CartCounter] 🏓 Received PING, running check');
         setTimeout(check,100); 
       } 
       if (m.type==='TAB_ACTIVE'){ 
-        console.log('[CartCounter] 🎯 Tab active changed to:', m.value);
+        debugLog('[CartCounter] 🎯 Tab active changed to:', m.value);
         window.__ghCartCounter.active=!!m.value; 
         if(m.value) setTimeout(check,100); 
       } 
@@ -948,17 +975,17 @@ const CART_COUNTER_SCRIPT = `
   document.addEventListener('message', onMsg);
   if (window.Ecwid?.OnCartChanged){ 
     try{ 
-      console.log('[CartCounter] ✅ Registering Ecwid.OnCartChanged listener');
+      debugLog('[CartCounter] ✅ Registering Ecwid.OnCartChanged listener');
       window.Ecwid.OnCartChanged.add(function(cart){ 
         const c = cart?.productsQuantity ?? cart?.items?.length ?? 0; 
-        console.log('[CartCounter] 🔔 OnCartChanged fired with count:', c);
+        debugLog('[CartCounter] 🔔 OnCartChanged fired with count:', c);
         post(c,true); 
       }); 
     }catch(e){
-      console.log('[CartCounter] ❌ Error registering OnCartChanged:', e);
+      debugLog('[CartCounter] ❌ Error registering OnCartChanged:', e);
     }
   }
-  console.log('[CartCounter] ⏰ Scheduling periodic checks');
+  debugLog('[CartCounter] ⏰ Scheduling periodic checks');
   [400,1000,2000,3500,6000,9000].forEach(d=>setTimeout(check,d));
   setInterval(check, 15000);
 })();
@@ -967,12 +994,12 @@ true;
 
 const SHARE_SCRIPT = `
 (function(){
-  console.log('[Share] 🔗 Initializing native share support');
+  debugLog('[Share] 🔗 Initializing native share support');
   
   // Add native share functionality to the page
   window.__ghNativeShare = function(url, title, message) {
     if (!window.ReactNativeWebView) {
-      console.log('[Share] ❌ ReactNativeWebView not available');
+      debugLog('[Share] ❌ ReactNativeWebView not available');
       return false;
     }
     
@@ -984,11 +1011,11 @@ const SHARE_SCRIPT = `
         message: message || title || document.title
       };
       
-      console.log('[Share] 📤 Sending share request:', shareData);
+      debugLog('[Share] 📤 Sending share request:', shareData);
       window.ReactNativeWebView.postMessage(JSON.stringify(shareData));
       return true;
     } catch (err) {
-      console.log('[Share] ❌ Error sending share request:', err);
+      debugLog('[Share] ❌ Error sending share request:', err);
       return false;
     }
   };
@@ -1024,12 +1051,12 @@ const SHARE_SCRIPT = `
             if (window.__ghNativeShare && window.__ghNativeShare(url, title)) {
               e.preventDefault();
               e.stopPropagation();
-              console.log('[Share] ✅ Triggered native share');
+              debugLog('[Share] ✅ Triggered native share');
             }
           }, true);
         });
       } catch (err) {
-        console.log('[Share] ⚠️ Error attaching to selector:', selector, err);
+        debugLog('[Share] ⚠️ Error attaching to selector:', selector, err);
       }
     });
   }
@@ -1048,7 +1075,7 @@ const SHARE_SCRIPT = `
       try {
         const productElements = document.querySelectorAll(selector);
         if (productElements.length > 0 && !document.querySelector('.__gh-share-btn')) {
-          console.log('[Share] 📦 Product page detected, share available via __ghNativeShare()');
+          debugLog('[Share] 📦 Product page detected, share available via __ghNativeShare()');
           // Store product info for easy access
           window.__ghCurrentProduct = {
             url: window.location.href,
@@ -1093,7 +1120,7 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
   const FAKE_CHECKOUT = ${REVIEW_DEMO_FAKE_CHECKOUT};
   if (!FAKE_CHECKOUT) return;
   
-  console.log('[CheckoutIntercept] Installing checkout button interceptor');
+  debugLog('[CheckoutIntercept] Installing checkout button interceptor');
   
   function interceptCheckout() {
     const checkoutSelectors = [
@@ -1130,10 +1157,10 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
           }
           
           el.__checkoutIntercepted = true;
-          console.log('[CheckoutIntercept] Attached to element:', el.tagName, el.className, text.substring(0, 30));
+          debugLog('[CheckoutIntercept] Attached to element:', el.tagName, el.className, text.substring(0, 30));
           
           el.addEventListener('click', function(e) {
-            console.log('[CheckoutIntercept] 🛒 Intercepted checkout button click!');
+            debugLog('[CheckoutIntercept] 🛒 Intercepted checkout button click!');
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
@@ -1173,7 +1200,7 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
                 items.push({ name: 'Hemp Flower Sample', price: '$10.00', quantity: 1 });
               }
               
-              console.log('[CheckoutIntercept] 📦 Extracted cart data:', { total, subtotal, tax, items });
+              debugLog('[CheckoutIntercept] 📦 Extracted cart data:', { total, subtotal, tax, items });
               
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -1184,10 +1211,10 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
                   items
                 }));
               } else {
-                console.error('[CheckoutIntercept] ❌ ReactNativeWebView not available');
+                debugError('[CheckoutIntercept] ❌ ReactNativeWebView not available');
               }
             } catch (err) {
-              console.error('[CheckoutIntercept] ❌ Error extracting cart data:', err);
+              debugError('[CheckoutIntercept] ❌ Error extracting cart data:', err);
               // Send minimal fallback
               if (window.ReactNativeWebView) {
                 window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -1204,7 +1231,7 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
           }, { capture: true });
         });
       } catch (err) {
-        console.error('[CheckoutIntercept] ❌ Error with selector:', selector, err);
+        debugError('[CheckoutIntercept] ❌ Error with selector:', selector, err);
       }
     });
   }
@@ -1228,7 +1255,7 @@ const CHECKOUT_INTERCEPT_SCRIPT = `
   // Periodic check to ensure we catch all buttons
   setInterval(interceptCheckout, 1000);
   
-  console.log('[CheckoutIntercept] ✅ Checkout interceptor installed');
+  debugLog('[CheckoutIntercept] ✅ Checkout interceptor installed');
 })();
 true;
 `;
@@ -1236,6 +1263,11 @@ true;
 const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profile') => `
 (function(){
   const TAB_KEY = '${tabKey}';
+  // Ensure debug helpers exist to avoid ReferenceError warnings in WKWebView
+  try {
+    if (typeof window.debugLog !== 'function') { window.debugLog = function(){ /* no-op */ }; }
+    if (typeof window.debugError !== 'function') { window.debugError = function(){ /* no-op */ }; }
+  } catch (_) {}
   if (typeof window.__ghMagicLinkCooldown === 'undefined') {
     window.__ghMagicLinkCooldown = 0;
   }
@@ -1526,7 +1558,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
       const payload = { type:'AUTH_DEBUG', scope:'web', tab:TAB_KEY, label, data };
       window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
     }catch(err){
-      console.log('[AuthDebug] postDebug error', err);
+      debugLog('[AuthDebug] postDebug error', err);
     }
   }
 
@@ -1673,17 +1705,17 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     const isFormSubmit = typeof source === 'string' && source.indexOf('submit') !== -1;
     const cooldown = isFormSubmit ? 150 : 700;
     if (now - (state.lastRequestTs || 0) < cooldown){
-      console.log('[Auth] Magic link request ignored (cooldown) from', source);
+      debugLog('[Auth] Magic link request ignored (cooldown) from', source);
       postDebug('request_ignored', { source, now, last: state.lastRequestTs });
       return;
     }
     state.lastRequestTs = now;
-    console.log('[Auth] Magic link request detected from', source);
+    debugLog('[Auth] Magic link request detected from', source);
     postDebug('request', { source, now });
     try{
       window.ReactNativeWebView?.postMessage(JSON.stringify({type:'MAGIC_LINK_REQUESTED', source, timestamp: now}));
     }catch(err){
-      console.log('[Auth] Error posting MAGIC_LINK_REQUESTED', err);
+      debugLog('[Auth] Error posting MAGIC_LINK_REQUESTED', err);
       postDebug('request_post_error', { source, error: String(err) });
     }
     try{
@@ -1692,13 +1724,13 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
           try{
             window.__ghStartMagicProbe(source);
           }catch(probeErr){
-            console.log('[Auth] Probe invocation error', probeErr);
+            debugLog('[Auth] Probe invocation error', probeErr);
             postDebug('probe_invocation_error', { source, error: String(probeErr) });
           }
         }, 80);
       }
     }catch(err){
-      console.log('[Auth] Probe dispatch error', err);
+      debugLog('[Auth] Probe dispatch error', err);
       postDebug('probe_dispatch_error', { source, error: String(err) });
     }
   }
@@ -1708,15 +1740,15 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
     const state = ensureMagicState();
     const now = Date.now();
     if (now - (state.lastRequestTs || 0) < 700){
-      console.log('[Auth] Get link click ignored (cooldown) from', source);
+      debugLog('[Auth] Get link click ignored (cooldown) from', source);
       return;
     }
     state.lastRequestTs = now;
-    console.log('[Auth] Get sign-in link button clicked from', source);
+    debugLog('[Auth] Get sign-in link button clicked from', source);
     try{
       window.ReactNativeWebView?.postMessage(JSON.stringify({type:'gh:getlink_clicked', source, timestamp: now}));
     }catch(err){
-      console.log('[Auth] Error posting gh:getlink_clicked', err);
+      debugLog('[Auth] Error posting gh:getlink_clicked', err);
     }
   }
 
@@ -1915,7 +1947,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
           if (!label) continue;
           if (MAGIC_REQUEST_KEYWORDS.test(label)){
             node.__ghMagicHooked = true;
-            console.log('[Auth] Hooked magic request control', sel, label);
+            debugLog('[Auth] Hooked magic request control', sel, label);
             postDebug('hook_control', { selector: sel, label, tag: node.tagName });
             ['click','tap','touchend','pointerup','mouseup'].forEach(function(evt){
               try{
@@ -1934,7 +1966,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         const formLabel = textFromElement(form);
         if (formLabel && MAGIC_REQUEST_KEYWORDS.test(formLabel)){
           form.__ghMagicHooked = true;
-          console.log('[Auth] Hooked magic request form');
+          debugLog('[Auth] Hooked magic request form');
           postDebug('hook_form', { action: form.action, label: formLabel });
           try{
             form.addEventListener('submit', function(){
@@ -1944,7 +1976,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         }
       }
     }catch(err){
-      console.log('[Auth] scanForMagicControls error', err);
+      debugLog('[Auth] scanForMagicControls error', err);
     }
   }
 
@@ -1981,7 +2013,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
             testId.includes('send-link')) {
           
           button.__ghGetLinkHooked = true;
-          console.log('[Auth] Hooked Get sign-in link button:', text, id, testId);
+          debugLog('[Auth] Hooked Get sign-in link button:', text, id, testId);
           
           ['click','tap','touchend','pointerup','mouseup'].forEach(function(evt){
             try{
@@ -1993,7 +2025,7 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
         }
       }
     }catch(err){
-      console.log('[Auth] scanForGetLinkButtons error', err);
+      debugLog('[Auth] scanForGetLinkButtons error', err);
     }
   }
 
@@ -2020,13 +2052,13 @@ const createInjectedJS = (tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profi
 
   function triggerMagicLinkBanner(source){
     if (ensureMagicState().suppressed){
-      console.log('[Auth] Magic link banner suppressed - skipping (' + source + ')');
+      debugLog('[Auth] Magic link banner suppressed - skipping (' + source + ')');
       return;
     }
     const now = Date.now();
     if (now - window.__ghMagicLinkCooldown < 3000) return;
     window.__ghMagicLinkCooldown = now;
-    console.log('[Auth] Email confirmation detected (' + source + ')');
+    debugLog('[Auth] Email confirmation detected (' + source + ')');
     monitorMagicConfirmation();
     setTimeout(() => {
       const state = ensureMagicState();
@@ -2278,7 +2310,7 @@ const parseCartPayload = (raw?: string | null): CartMeta => {
       items: itemsList,
     };
   } catch (error) {
-    console.log('[CartStorage] Failed to parse cart payload', error);
+    debugLog('[CartStorage] Failed to parse cart payload', error);
     return { count: null, cartId: null, items: [] };
   }
 };
@@ -2296,12 +2328,39 @@ const deriveCountFromStorage = (storage: StorageLike): number | null => {
   return extractCartMeta(storage).count;
 };
 
-export const WebShell = forwardRef<WebView, WebShellProps>(
+const WebShellComponent = React.forwardRef<any, WebShellProps>(
   ({ initialUrl, tabKey, initialHeaders, onMessage: userOnMessage, onShouldStartLoadWithRequest: userShouldStart, ...restProps }, ref) => {
+    // Removed excessive logging that causes re-renders
+
     const { setCartCount } = useApp();
     const router = useRouter();
     const [isLoading, setIsLoading] = useState(false); // Start false - don't block with loading overlay
     const webviewRef = useRef<WebView>(null);
+    const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Simple watchdog: if Home stays blank for too long, force-load the URL once
+    useEffect(() => {
+      if (tabKey !== 'home') return;
+      if (watchdogRef.current) clearTimeout(watchdogRef.current);
+      watchdogRef.current = setTimeout(() => {
+        try {
+          const target = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+          if (target && typeof target.injectJavaScript === 'function') {
+            target.injectJavaScript(`(function(){ try {
+              var href = (window.location && window.location.href) || '';
+              var blank = !document.body || ((document.body.innerText||'').trim().length < 20);
+              if (!href || href === 'about:blank' || blank) { window.location.href = 'https://greenhauscc.com/'; }
+            } catch(_) {} return true; })(); true;`);
+          }
+        } catch {}
+      }, 10000);
+      return () => {
+        if (watchdogRef.current) {
+          clearTimeout(watchdogRef.current);
+          watchdogRef.current = null;
+        }
+      };
+    }, [tabKey, initialUrl, ref]);
     const isActiveRef = useRef(false);
     const isMountedRef = useRef(true);
     const lastHydratedAtRef = useRef(0);
@@ -2313,7 +2372,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
       try {
         return JSON.stringify(value).replace(/</g, '\\u003c');
       } catch (error) {
-        console.warn('[WebShell] Failed to serialize payload for injection', error);
+        debugWarn('[WebShell] Failed to serialize payload for injection', error);
         return 'null';
       }
     }, []);
@@ -2355,7 +2414,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
               }
             }
           } catch (err) {
-            console.log('[CartStorage] hydrate error', err);
+            debugLog('[CartStorage] hydrate error', err);
           }
         })();
         true;
@@ -2376,14 +2435,24 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           lastHydratedSignatureRef.current = snapshotSignature;
         }
         if (needsReload) {
-          console.log('[WebShell] ♻️ Reloading cart tab after hydrating stored cart data');
-          target.injectJavaScript(
-            '(function(){ if (!window.__ghReloadingCart){ window.__ghReloadingCart=true; setTimeout(function(){ window.location.reload(); }, 100); } })(); true;'
-          );
+          debugLog('[WebShell] ♻️ Reloading cart tab after hydrating stored cart data');
+          // Use WebView's native reload method instead of window.location.reload()
+          // This ensures proper navigation and prevents empty page issues
+          setTimeout(() => {
+            try {
+              target.reload();
+            } catch (err) {
+              debugWarn('[WebShell] Failed to reload WebView, falling back to JS reload', err);
+              // Fallback to JS reload if native reload fails
+              target.injectJavaScript(
+                '(function(){ if (!window.__ghReloadingCart){ window.__ghReloadingCart=true; setTimeout(function(){ window.location.href = window.location.href.split("?")[0] + "?review=true"; }, 200); } })(); true;'
+              );
+            }
+          }, 300); // Increased delay to ensure hydration completes
         }
         return true;
       } catch (err) {
-        console.warn('[WebShell] Failed to inject cart storage', err);
+        debugWarn('[WebShell] Failed to inject cart storage', err);
         return false;
       }
     }, [serializeForInjection]);
@@ -2395,17 +2464,18 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
     const handleMessage = useCallback(async (event: any) => {
       try {
         const rawData = event.nativeEvent.data || '{}';
-        console.log(`[WebShell:${tabKey}] 📨 Raw message received:`, rawData);
-        
+        // debugLog(`[WebShell:${tabKey}] 📨 Raw message received:`, rawData); // DISABLED - too verbose
+
         const msg = JSON.parse(rawData);
-        console.log(`[WebShell:${tabKey}] 📨 Parsed message:`, msg);
+        // Only log message type, not full payload
+        debugLog(`[WebShell:${tabKey}] 📨 Message type:`, msg.type, 'from:', msg.source);
         
         if (msg.type === 'CART_COUNT' || msg.type === 'CART') {
           // Parse the incoming count first
           const count = Number(msg.value ?? msg.count ?? 0);
           let normalized = isFinite(count) ? Math.max(0, Math.min(999, count)) : 0;
           
-          console.log(`[WebShell:${tabKey}] 🛒 CART_COUNT received - raw value: ${msg.value}, count: ${msg.count}, normalized: ${normalized}`);
+          debugLog(`[WebShell:${tabKey}] 🛒 CART_COUNT received - raw value: ${msg.value}, count: ${msg.count}, normalized: ${normalized}`);
           
           // Extract storage and cartId information
           const incomingStorage = msg.storage as CartStoragePayload | undefined;
@@ -2418,10 +2488,9 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             storageCount = meta.count;
             incomingCartId = meta.cartId;
             incomingItems = meta.items || [];
-            console.log(`[WebShell:${tabKey}] 📦 Incoming storage - count: ${storageCount}, cartId: ${incomingCartId}`);
-            console.log(`[WebShell:${tabKey}] 📦 Incoming ITEMS:`, JSON.stringify(incomingItems, null, 2));
+            debugLog(`[WebShell:${tabKey}] 📦 Incoming storage - count: ${storageCount}, cartId: ${incomingCartId}`);
           } else {
-            console.log(`[WebShell:${tabKey}] ⚠️ No storage snapshot in CART_COUNT message`);
+            debugLog(`[WebShell:${tabKey}] ⚠️ No storage snapshot in CART_COUNT message`);
           }
           
           // Get cached cart state
@@ -2430,8 +2499,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           const cachedCount = cachedMeta.count;
           const cachedCartId = cachedMeta.cartId;
           const cachedItems = cachedMeta.items || [];
-          console.log(`[WebShell:${tabKey}] 💾 Cached state - count: ${cachedCount}, cartId: ${cachedCartId}`);
-          console.log(`[WebShell:${tabKey}] 💾 Cached ITEMS:`, JSON.stringify(cachedItems, null, 2));
+          debugLog(`[WebShell:${tabKey}] 💾 Cached state - count: ${cachedCount}, cartId: ${cachedCartId}`);
           
           // Detect if Ecwid session was reset (different cartId, was non-zero, now zero)
           const isServerReset =
@@ -2445,7 +2513,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             );
           
           if (isServerReset) {
-            console.log(
+            debugLog(
               `[WebShell:${tabKey}] 🚨 CART SESSION RESET DETECTED!\n` +
               `  Previous cartId: ${cachedCartId}\n` +
               `  New cartId: ${incomingCartId}\n` +
@@ -2462,19 +2530,72 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             // Try to restore the old cart by rehydrating
             if (cachedSnapshot) {
               const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
-              const success = hydrateCartStorage(targetRef, {
-                tabKey,
-                allowReload: tabKey === 'cart',
-                forceReload: tabKey === 'cart',
-              });
-              console.log(
-                `[WebShell:${tabKey}] ${success ? '✅ Attempted to rehydrate old cart' : '❌ Failed to rehydrate old cart'}`
-              );
+              
+              // For cart tab, navigate to cart URL directly to ensure proper page load
+              if (tabKey === 'cart' && targetRef) {
+                debugLog('[WebShell:cart] 🔄 Restoring cart session after reset');
+                // First hydrate storage immediately
+                hydrateCartStorage(targetRef, {
+                  tabKey,
+                  allowReload: false, // Don't auto-reload, we'll navigate manually
+                  forceReload: false,
+                });
+                
+                // Navigate to cart URL after hydration completes
+                // Use a longer delay to ensure storage is fully hydrated
+                setTimeout(() => {
+                  try {
+                    // Check current URL and navigate if needed
+                    targetRef.injectJavaScript(`
+                      (function() {
+                        const cartUrl = 'https://greenhauscc.com/products/cart?review=true';
+                        const currentUrl = window.location.href;
+                        
+                        debugLog('[CartRestore] Current URL:', currentUrl);
+                        debugLog('[CartRestore] Target URL:', cartUrl);
+                        
+                        // Only navigate if we're not already on the cart page
+                        if (!currentUrl.includes('/cart')) {
+                          debugLog('[CartRestore] Navigating to cart URL');
+                          window.location.href = cartUrl;
+                        } else if (currentUrl !== cartUrl) {
+                          // On cart page but different URL, reload to ensure proper state
+                          debugLog('[CartRestore] Reloading cart page with correct URL');
+                          window.location.href = cartUrl;
+                        } else {
+                          // Already on correct cart URL, just reload to refresh
+                          debugLog('[CartRestore] Reloading current cart page');
+                          window.location.reload();
+                        }
+                      })();
+                      true;
+                    `);
+                  } catch (err) {
+                    debugWarn('[WebShell:cart] Failed to navigate to cart', err);
+                    // Fallback: try native reload
+                    try {
+                      targetRef.reload();
+                    } catch (reloadErr) {
+                      debugError('[WebShell:cart] Failed to reload WebView', reloadErr);
+                    }
+                  }
+                }, 500); // Increased delay to ensure hydration completes
+              } else {
+                // For other tabs, use normal hydration
+                const success = hydrateCartStorage(targetRef, {
+                  tabKey,
+                  allowReload: false,
+                  forceReload: false,
+                });
+                debugLog(
+                  `[WebShell:${tabKey}] ${success ? '✅ Attempted to rehydrate old cart' : '❌ Failed to rehydrate old cart'}`
+                );
+              }
             }
           } else if (incomingStorage) {
             // Normal case - save the incoming storage
             if (incomingCartId && cachedCartId && incomingCartId !== cachedCartId) {
-              console.log(
+              debugLog(
                 `[WebShell:${tabKey}] 🔄 CartId changed from ${cachedCartId} to ${incomingCartId}\n` +
                 `  Old count: ${cachedCount}\n` +
                 `  New count: ${storageCount}\n` +
@@ -2482,13 +2603,13 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
               );
             } else if (incomingCartId && cachedCartId && incomingCartId === cachedCartId) {
               // Same cart ID - check if items were added or removed
-              if ((storageCount ?? 0) < cachedCount) {
-                console.log(
+              if ((storageCount ?? 0) < (cachedCount ?? 0)) {
+                debugLog(
                   `[WebShell:${tabKey}] 📉 Same cart ID - items removed: ${cachedCount} → ${storageCount} items\n` +
                   `  → Saving updated state to remember current cart contents`
                 );
-              } else if ((storageCount ?? 0) > cachedCount) {
-                console.log(
+              } else if ((storageCount ?? 0) > (cachedCount ?? 0)) {
+                debugLog(
                   `[WebShell:${tabKey}] 📈 Same cart ID - items added: ${cachedCount} → ${storageCount} items\n` +
                   `  → Saving updated state`
                 );
@@ -2508,7 +2629,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
               // If new cart has items (even fewer), they might be from hydration - don't merge (would cause duplicates)
               // Wait a bit to ensure Ecwid has loaded items from hydrated storage before merging
               if (!hasOverlap && cachedCount > 0 && (storageCount ?? 0) === 0) {
-                console.error(
+                debugError(
                   `[WebShell:${tabKey}] 🚨 CART ID CHANGED - New cart is EMPTY, merging old items!\n` +
                   `  Old cartId: ${cachedCartId} (${cachedCount} items)\n` +
                   `  New cartId: ${incomingCartId} (${storageCount} items - EMPTY)\n` +
@@ -2518,7 +2639,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                 // Merge old items into the new cart using Ecwid API
                 const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
                 if (targetRef && cachedItems && cachedItems.length > 0) {
-                  console.log(`[WebShell:${tabKey}] 🔄 Merging ${cachedItems.length} old items into new cart...`);
+                  debugLog(`[WebShell:${tabKey}] 🔄 Merging ${cachedItems.length} old items into new cart...`);
                   
                   // Extract selectedOptions from cached items (need to get from full cart data)
                   const cachedSnapshot = cartState.get();
@@ -2539,7 +2660,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                           combinationsId: item.combinationsId,
                         }));
                       } catch (e) {
-                        console.warn('[WebShell] Failed to extract options from cached cart', e);
+                        debugWarn('[WebShell] Failed to extract options from cached cart', e);
                         itemsWithOptions = cachedItems.map((item: any) => ({
                           productId: item.productId,
                           quantity: item.quantity,
@@ -2554,7 +2675,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                       if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get && window.Ecwid.Cart.addProduct) {
                         var itemsToMerge = ${JSON.stringify(itemsWithOptions.length > 0 ? itemsWithOptions : cachedItems)};
                         
-                        console.log('[CartMerge] 🔄 Waiting for hydration to complete, then checking cart...');
+                        debugLog('[CartMerge] 🔄 Waiting for hydration to complete, then checking cart...');
                         
                         // Wait 2 seconds to ensure Ecwid has loaded items from hydrated storage
                         setTimeout(function() {
@@ -2570,17 +2691,17 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                               currentItemMap[key] = item;
                             });
                             
-                            console.log('[CartMerge] 📋 After hydration wait - cart has', currentCount, 'items (', currentItems.length, 'unique)');
+                            debugLog('[CartMerge] 📋 After hydration wait - cart has', currentCount, 'items (', currentItems.length, 'unique)');
                             
                             // If cart already has items (from hydration), don't merge - would cause duplicates
                             if (currentCount > 0) {
-                              console.log('[CartMerge] ⏭️ Cart already has items from hydration - skipping merge to avoid duplicates');
-                              console.log('[CartMerge] ✅ Cart restoration complete via hydration - no merge needed');
+                              debugLog('[CartMerge] ⏭️ Cart already has items from hydration - skipping merge to avoid duplicates');
+                              debugLog('[CartMerge] ✅ Cart restoration complete via hydration - no merge needed');
                               return;
                             }
                             
                             // Cart is still empty - proceed with merge
-                            console.log('[CartMerge] 🔄 Cart is still empty - proceeding with merge of', itemsToMerge.length, 'items');
+                            debugLog('[CartMerge] 🔄 Cart is still empty - proceeding with merge of', itemsToMerge.length, 'items');
                             
                             var mergedCount = 0;
                             var failedCount = 0;
@@ -2595,10 +2716,10 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                                   
                                   // Double-check if item already exists (might have been added by hydration during merge)
                                   if (existingItem) {
-                                    console.log('[CartMerge] ⏭️ Item already in cart:', item.productId, '- skipping to avoid duplicate');
+                                    debugLog('[CartMerge] ⏭️ Item already in cart:', item.productId, '- skipping to avoid duplicate');
                                     skippedCount++;
                                     if (mergedCount + failedCount + skippedCount === itemsToMerge.length) {
-                                      console.log('[CartMerge] ✅ Finished merging -', mergedCount, 'added,', skippedCount, 'skipped,', failedCount, 'failed');
+                                      debugLog('[CartMerge] ✅ Finished merging -', mergedCount, 'added,', skippedCount, 'skipped,', failedCount, 'failed');
                                     }
                                     return;
                                   }
@@ -2616,26 +2737,26 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                                     params.options = options;
                                   }
                                   
-                                  console.log('[CartMerge] ➕ Adding item:', item.productId, 'Qty:', item.quantity, 'Params:', JSON.stringify(params));
+                                  debugLog('[CartMerge] ➕ Adding item:', item.productId, 'Qty:', item.quantity, 'Params:', JSON.stringify(params));
                                   
                                   window.Ecwid.Cart.addProduct(item.productId, params, function(success) {
                                     if (success) {
                                       mergedCount++;
-                                      console.log('[CartMerge] ✅ Merged item', mergedCount, 'of', itemsToMerge.length);
+                                      debugLog('[CartMerge] ✅ Merged item', mergedCount, 'of', itemsToMerge.length);
                                     } else {
                                       failedCount++;
-                                      console.error('[CartMerge] ❌ Failed to merge item:', item.productId);
+                                      debugError('[CartMerge] ❌ Failed to merge item:', item.productId);
                                     }
                                     
                                     if (mergedCount + failedCount + skippedCount === itemsToMerge.length) {
-                                      console.log('[CartMerge] ✅ Finished merging -', mergedCount, 'added,', skippedCount, 'skipped,', failedCount, 'failed');
+                                      debugLog('[CartMerge] ✅ Finished merging -', mergedCount, 'added,', skippedCount, 'skipped,', failedCount, 'failed');
                                       // Trigger cart update to sync with server
                                       if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
                                         setTimeout(function() {
                                           window.Ecwid.Cart.get(function(cart) {
                                             var cartCount = cart?.productsQuantity || 0;
                                             var cartId = cart?.cartId || 'none';
-                                            console.log('[CartMerge] 🛒 Final cart - ID:', cartId, 'Count:', cartCount);
+                                            debugLog('[CartMerge] 🛒 Final cart - ID:', cartId, 'Count:', cartCount);
                                           });
                                         }, 1000);
                                       }
@@ -2647,7 +2768,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                           });
                         }, 2000); // Wait 2 seconds for hydration to complete
                       } else {
-                        console.error('[CartMerge] ❌ Ecwid API not available');
+                        debugError('[CartMerge] ❌ Ecwid API not available');
                       }
                     })();
                     true;
@@ -2657,21 +2778,21 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                   // Don't update badge yet - wait for merge to complete
                   // If new cart is empty, merge will restore items
                   // If new cart has items, they're already shown
-                  console.log(`[WebShell:${tabKey}] ⏭️ Deferring badge update - merge in progress, will update after merge completes`);
+                  debugLog(`[WebShell:${tabKey}] ⏭️ Deferring badge update - merge in progress, will update after merge completes`);
                   
                   // Don't save the new storage yet - wait for merge to complete
                   // The merge will trigger a new CART_COUNT message with merged items
-                  console.log(`[WebShell:${tabKey}] ⏭️ Deferring save - merge in progress, will save after merge completes`);
+                  debugLog(`[WebShell:${tabKey}] ⏭️ Deferring save - merge in progress, will save after merge completes`);
                   return; // Exit early - merge will trigger new CART_COUNT with merged items
                 }
               } else if (hasOverlap || (storageCount ?? 0) >= cachedCount) {
                 // Cart ID changed but new cart has items that overlap or more items - it's an update, save it
-                console.log(
+                debugLog(
                   `[WebShell:${tabKey}] ✅ Cart ID changed - new cart has ${storageCount} items (old had ${cachedCount}), saving update`
                 );
               } else {
                 // Cart ID changed and new cart has fewer items - might be from hydration, save the new state
-                console.log(
+                debugLog(
                   `[WebShell:${tabKey}] ✅ Cart ID changed - new cart has ${storageCount} items (old had ${cachedCount}), saving updated state`
                 );
               }
@@ -2680,27 +2801,22 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             // ALWAYS save the incoming storage to keep cache in sync with actual cart state
             // This ensures that when user removes items, we remember the new state, not the old one
             cartState.save(incomingStorage);
-            console.log(`[WebShell:${tabKey}] 💾 Saved incoming storage to cartState (count: ${storageCount}, cartId: ${incomingCartId || 'none'})`);
+            debugLog(`[WebShell:${tabKey}] 💾 Saved incoming storage to cartState (count: ${storageCount}, cartId: ${incomingCartId || 'none'})`);
           }
           
-          // Skip update if inactive tab (but we already saved storage above)
-          if (!isActiveRef.current) {
-            console.log(
-              `[WebShell:${tabKey}] ⏭️ CART_COUNT while tab inactive - storage saved but not updating badge`
-            );
-            return;
-          }
+          // Always update the app badge even if this WebView is not the active tab.
+          // We already saved storage above to keep cache in sync; now reflect count in UI.
           
           // Use storage-derived count if available
           if (storageCount !== null) {
             if (storageCount !== normalized) {
-              console.log(`[WebShell:${tabKey}] 🔁 Overriding message count ${normalized} with storage-derived count ${storageCount}`);
+              debugLog(`[WebShell:${tabKey}] 🔁 Overriding message count ${normalized} with storage-derived count ${storageCount}`);
             }
             normalized = storageCount;
           } else if (normalized === 0) {
             // If message says zero but we have no storage, and cache has items, trust cache
             if (typeof cachedCount === 'number' && cachedCount > 0) {
-              console.log(
+              debugLog(
                 `[WebShell:${tabKey}] ⚠️ Message says 0 but no storage included, cached cart has ${cachedCount} items - trusting cache`
               );
               normalized = cachedCount;
@@ -2709,14 +2825,14 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
               // This ensures we have the latest state even if message didn't include storage
               const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
               if (targetRef) {
-                console.log(`[WebShell:${tabKey}] 🔄 Requesting cart storage to sync cache...`);
+                debugLog(`[WebShell:${tabKey}] 🔄 Requesting cart storage to sync cache...`);
                 targetRef.injectJavaScript(`
                   (function() {
                     if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
                       window.Ecwid.Cart.get(function(cart) {
                         var cartCount = cart?.productsQuantity || 0;
                         var cartId = cart?.cartId || 'none';
-                        console.log('[CartSync] 🛒 Current cart - ID:', cartId, 'Count:', cartCount);
+                        debugLog('[CartSync] 🛒 Current cart - ID:', cartId, 'Count:', cartCount);
                         
                         // Request storage snapshot to update cache
                         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
@@ -2752,9 +2868,9 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                               source: window.location.pathname,
                               storage: storage
                             }));
-                            console.log('[CartSync] ✅ Sent storage snapshot to sync cache');
+                            debugLog('[CartSync] ✅ Sent storage snapshot to sync cache');
                           } catch (e) {
-                            console.error('[CartSync] ❌ Failed to capture storage:', e);
+                            debugError('[CartSync] ❌ Failed to capture storage:', e);
                           }
                         }
                       });
@@ -2765,28 +2881,28 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
               }
             } else {
               // Zero with no storage and no cache - ignore it unless we're ready
-              console.log(
+              debugLog(
                 `[WebShell:${tabKey}] ⏭️ Ignoring zero cart count without storage snapshot or cache`
               );
               return;
             }
           }
           
-          console.log(`[WebShell:${tabKey}] ✅ Final cart count: ${normalized} - updating badge now`);
+          debugLog(`[WebShell:${tabKey}] ✅ Final cart count: ${normalized} - updating badge now`);
           setCartCount(normalized);
         } else if (msg.type === 'NAVIGATE_TAB') {
           if (msg.tab && msg.tab !== tabKey) {
-            console.log(`[WebShell:${tabKey}] 🧭 Navigating to tab:`, msg.tab);
+            debugLog(`[WebShell:${tabKey}] 🧭 Navigating to tab:`, msg.tab);
             
             // Just use router.push for ALL tabs - let cart.tsx handle cart navigation with hash checking
-            console.log(`[WebShell:${tabKey}] ➡️ Switching to ${msg.tab} tab via router.push`);
+            debugLog(`[WebShell:${tabKey}] ➡️ Switching to ${msg.tab} tab via router.push`);
             router.push(`/(tabs)/${msg.tab}` as any);
           }
         } else if (msg.type === 'EMAIL_LINK_SENT') {
-          console.log(`[WebShell:${tabKey}] 📧 Email link sent detected`);
+          debugLog(`[WebShell:${tabKey}] 📧 Email link sent detected`);
         } else if (msg.type === 'SHARE') {
           // Handle native share request from webview
-          console.log(`[WebShell:${tabKey}] 📤 Share request:`, msg);
+          debugLog(`[WebShell:${tabKey}] 📤 Share request:`, msg);
           const url = msg.url || msg.value;
           const title = msg.title || 'Check this out!';
           const message = msg.message || title;
@@ -2796,13 +2912,13 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             message: Platform.OS === 'ios' ? message : `${message}\n${url}`,
             url: Platform.OS === 'ios' ? url : undefined,
           }).then((result) => {
-            console.log(`[WebShell:${tabKey}] ✅ Share result:`, result);
+            debugLog(`[WebShell:${tabKey}] ✅ Share result:`, result);
           }).catch((error) => {
-            console.error(`[WebShell:${tabKey}] ❌ Share error:`, error);
+            debugError(`[WebShell:${tabKey}] ❌ Share error:`, error);
           });
         } else if (msg.type === 'FAKE_CHECKOUT_DATA') {
           // Handle fake checkout data from intercepted checkout attempt
-          console.log(`[WebShell:${tabKey}] 🛒 Fake checkout data received:`, msg);
+          debugLog(`[WebShell:${tabKey}] 🛒 Fake checkout data received:`, msg);
           
           const newOrder = await FakeDemoOrdersService.addOrder({
             status: 'Confirmed',
@@ -2833,34 +2949,34 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             }
           }, 300);
         } else if (msg.type === 'DEBUG_TEST') {
-          console.log(`[WebShell:${tabKey}] 🔍 DEBUG TEST RECEIVED:`, msg.value, 'at', new Date(msg.timestamp).toLocaleTimeString());
+          debugLog(`[WebShell:${tabKey}] 🔍 DEBUG TEST RECEIVED:`, msg.value, 'at', new Date(msg.timestamp).toLocaleTimeString());
         } else {
-          console.log(`[WebShell:${tabKey}] 📨 Unknown message type:`, msg.type);
+          debugLog(`[WebShell:${tabKey}] 📨 Unknown message type:`, msg.type);
         }
         
         if (userOnMessage) {
           userOnMessage(event);
         }
       } catch (error) {
-        console.error(`[WebShell:${tabKey}] ❌ Message parse error:`, error, 'raw data:', event.nativeEvent.data);
+        debugError(`[WebShell:${tabKey}] ❌ Message parse error:`, error, 'raw data:', event.nativeEvent.data);
       }
     }, [setCartCount, router, tabKey, userOnMessage, ref, webviewRef, hydrateCartStorage]);
 
     const handleError = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
-      console.error(`[WebShell:${tabKey}] ❌ WebView error:`, nativeEvent);
-      console.error(`[WebShell:${tabKey}] ❌ Error code:`, nativeEvent.code);
-      console.error(`[WebShell:${tabKey}] ❌ Error description:`, nativeEvent.description);
-      console.error(`[WebShell:${tabKey}] ❌ Error domain:`, nativeEvent.domain);
-      console.error(`[WebShell:${tabKey}] ❌ Error URL:`, nativeEvent.url);
+      debugError(`[WebShell:${tabKey}] ❌ WebView error:`, nativeEvent);
+      debugError(`[WebShell:${tabKey}] ❌ Error code:`, nativeEvent.code);
+      debugError(`[WebShell:${tabKey}] ❌ Error description:`, nativeEvent.description);
+      debugError(`[WebShell:${tabKey}] ❌ Error domain:`, nativeEvent.domain);
+      debugError(`[WebShell:${tabKey}] ❌ Error URL:`, nativeEvent.url);
       
       // WebKit Error 300 - try to reload after a delay
       if (nativeEvent.code === 300 || nativeEvent.domain === 'WebKitErrorDomain') {
-        console.warn(`[WebShell:${tabKey}] ⚠️ WebKit internal error - attempting reload in 2 seconds`);
+        debugWarn(`[WebShell:${tabKey}] ⚠️ WebKit internal error - attempting reload in 2 seconds`);
         const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
         if (targetRef) {
           setTimeout(() => {
-            console.log(`[WebShell:${tabKey}] 🔄 Reloading after WebKit error`);
+            debugLog(`[WebShell:${tabKey}] 🔄 Reloading after WebKit error`);
             targetRef.reload();
           }, 2000);
         }
@@ -2869,49 +2985,111 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
     const handleHttpError = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
-      console.error(`[WebShell:${tabKey}] 🌐 HTTP error:`, nativeEvent);
-      console.error(`[WebShell:${tabKey}] 🌐 Status code:`, nativeEvent.statusCode);
-      console.error(`[WebShell:${tabKey}] 🌐 URL:`, nativeEvent.url);
+      debugError(`[WebShell:${tabKey}] 🌐 HTTP error:`, nativeEvent);
+      debugError(`[WebShell:${tabKey}] 🌐 Status code:`, nativeEvent.statusCode);
+      debugError(`[WebShell:${tabKey}] 🌐 URL:`, nativeEvent.url);
       // Don't clear loading on HTTP errors - let onLoadEnd handle it
       // Some pages return 200 even with errors
     }, [tabKey]);
 
     const handleLoadStart = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
-      console.log(`[WebShell:${tabKey}] 📤 onLoadStart fired`);
-      console.log(`[WebShell:${tabKey}] 📤 Load start URL:`, nativeEvent?.url);
-      console.log(`[WebShell:${tabKey}] 📤 Load start navigationType:`, nativeEvent?.navigationType);
+      debugLog(`[WebShell:${tabKey}] 📤 onLoadStart fired`);
+      debugLog(`[WebShell:${tabKey}] 📤 Load start URL:`, nativeEvent?.url);
+      debugLog(`[WebShell:${tabKey}] 📤 Load start navigationType:`, nativeEvent?.navigationType);
       
       // Ensure WebView is still mounted
       if (!isMountedRef.current) {
-        console.warn(`[WebShell:${tabKey}] ⚠️ Component unmounted, ignoring loadStart`);
+        debugWarn(`[WebShell:${tabKey}] ⚠️ Component unmounted, ignoring loadStart`);
         return;
       }
       
-      // CRITICAL: Hydrate cart storage IMMEDIATELY on load start to restore cart ID
-      // BEFORE Ecwid initializes and creates a new cart session!
-      // This ensures cart ID persists across app restarts (even after force close)
+      // Only hydrate cart storage on the cart tab to avoid cookie churn on other pages
       const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
       if (targetRef) {
-        console.log(`[WebShell:${tabKey}] 🔄 Load start - hydrating cart storage EARLY to preserve cart ID`);
-        hydrateCartStorage(targetRef, { tabKey, allowReload: false }); // Don't reload on load start
+        if (!WEBVIEW_MINIMAL_MODE && tabKey === 'cart') {
+          debugLog(`[WebShell:${tabKey}] 🔄 Load start - hydrating cart storage EARLY to preserve cart ID`);
+          hydrateCartStorage(targetRef, { tabKey, allowReload: false });
+        }
       } else {
-        console.warn(`[WebShell:${tabKey}] ⚠️ No WebView ref available during loadStart`);
+        debugWarn(`[WebShell:${tabKey}] ⚠️ No WebView ref available during loadStart`);
       }
     }, [ref, tabKey, hydrateCartStorage]);
 
     const handleLoadEnd = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
-      console.log(`[WebShell:${tabKey}] 📥 onLoadEnd fired`);
-      console.log(`[WebShell:${tabKey}] 📥 Load end URL:`, nativeEvent.url);
-      console.log(`[WebShell:${tabKey}] 📥 Load end title:`, nativeEvent.title);
-      console.log(`[WebShell:${tabKey}] 📥 Load end navigationType:`, nativeEvent.navigationType);
-      console.log(`[WebShell:${tabKey}] ✅ Load complete, requesting cart count`);
+      debugLog(`[WebShell:${tabKey}] 📥 onLoadEnd fired`);
+      debugLog(`[WebShell:${tabKey}] 📥 Load end URL:`, nativeEvent.url);
+      debugLog(`[WebShell:${tabKey}] 📥 Load end title:`, nativeEvent.title);
+      debugLog(`[WebShell:${tabKey}] 📥 Load end navigationType:`, nativeEvent.navigationType);
+      debugLog(`[WebShell:${tabKey}] ✅ Load complete, requesting cart count`);
       
       // Ensure WebView is still mounted
       if (!isMountedRef.current) {
-        console.warn(`[WebShell:${tabKey}] ⚠️ Component unmounted during load, ignoring loadEnd`);
+        debugWarn(`[WebShell:${tabKey}] ⚠️ Component unmounted during load, ignoring loadEnd`);
         return;
+      }
+      
+      // Ensure content is visible - inject script to make sure body/content is visible
+      const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+      if (targetRef) {
+        if (WEBVIEW_MINIMAL_MODE) {
+          return;
+        }
+        // Run immediately and with delays to catch all cases
+        const ensureVisibility = () => {
+          targetRef.injectJavaScript(`
+            (function() {
+              try {
+                // Force visibility on all key elements
+                if (document.body) {
+                  document.body.style.display = '';
+                  document.body.style.visibility = 'visible';
+                  document.body.style.opacity = '1';
+                  document.body.style.height = '';
+                  document.body.style.minHeight = '';
+                }
+                if (document.documentElement) {
+                  document.documentElement.style.display = '';
+                  document.documentElement.style.visibility = 'visible';
+                  document.documentElement.style.opacity = '1';
+                }
+                // Ensure main content containers are visible
+                const main = document.querySelector('main');
+                if (main) {
+                  main.style.display = '';
+                  main.style.visibility = 'visible';
+                  main.style.opacity = '1';
+                }
+                // Ensure ec-store container is visible
+                const ecStore = document.querySelector('.ec-store');
+                if (ecStore) {
+                  ecStore.style.display = '';
+                  ecStore.style.visibility = 'visible';
+                  ecStore.style.opacity = '1';
+                }
+                // Remove any hiding overlays
+                const overlays = document.querySelectorAll('[style*="display: none"], [style*="opacity: 0"], [style*="visibility: hidden"]');
+                overlays.forEach(el => {
+                  if (el.id !== 'safe-mode-overlay') {
+                    el.style.display = '';
+                    el.style.visibility = '';
+                    el.style.opacity = '';
+                  }
+                });
+                debugLog('[WebShell] ✅ Content visibility ensured - body visible:', document.body ? 'yes' : 'no');
+              } catch(e) {
+                debugError('[WebShell] ❌ Error ensuring content visibility:', e);
+              }
+            })();
+            true;
+          `);
+        };
+        
+        ensureVisibility();
+        setTimeout(ensureVisibility, 100);
+        setTimeout(ensureVisibility, 500);
+        setTimeout(ensureVisibility, 1000);
       }
       
       // ========================================================================
@@ -2922,9 +3100,10 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
       // Script is injected 500ms after page load to ensure DOM is fully rendered
       // See SAFE_MODE_SCRIPT definition above for full documentation
       // ========================================================================
-      const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
       if (targetRef && SAFE_MODE) {
-        console.log(`[WebShell:${tabKey}] 🚀 Injecting SAFE_MODE_SCRIPT via injectJavaScript...`);
+        debugLog(`[WebShell:${tabKey}] 🚀 Injecting SAFE_MODE_SCRIPT via injectJavaScript...`);
+        // Inject helpers first to avoid ReferenceError in page context
+        targetRef.injectJavaScript(`(function(){ try{ if(typeof window.debugLog!=='function'){window.debugLog=function(){}}; if(typeof window.debugError!=='function'){window.debugError=function(){}}; }catch(_){}; true; })();`);
         // Inject IMMEDIATELY - no delay (CSS already hid everything)
         targetRef.injectJavaScript(SAFE_MODE_SCRIPT);
       }
@@ -2941,11 +3120,60 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
         setTimeout(() => {
           const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
           if (targetRef) {
-            console.log(`[WebShell:${tabKey}] 📤 Sending PING after ${delay}ms (load seq #${idx + 1})`);
+            debugLog(`[WebShell:${tabKey}] 📤 Sending PING after ${delay}ms (load seq #${idx + 1})`);
             targetRef.postMessage(JSON.stringify({ type: 'PING' }));
           }
         }, delay);
       });
+
+      // Proactively request a fresh cart count with storage snapshot after load completes.
+      // This makes the badge update reliable on all tabs and on first load.
+      const immediateTarget = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+      if (immediateTarget) {
+        immediateTarget.injectJavaScript(`
+          (function() {
+            try {
+              function collectStorage() {
+                var storage = { local: {}, session: {}, cookies: {} };
+                try {
+                  for (var i = 0; i < localStorage.length; i++) {
+                    var k = localStorage.key(i); if (k) storage.local[k] = localStorage.getItem(k);
+                  }
+                } catch(_) {}
+                try {
+                  for (var j = 0; j < sessionStorage.length; j++) {
+                    var s = sessionStorage.key(j); if (s) storage.session[s] = sessionStorage.getItem(s);
+                  }
+                } catch(_) {}
+                try { storage.cookies = document.cookie; } catch(_) {}
+                return storage;
+              }
+              function postCount(n) {
+                try {
+                  window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'CART_COUNT',
+                    value: Number(n) || 0,
+                    source: 'loadEndProbe',
+                    storage: collectStorage()
+                  }));
+                } catch(_) {}
+              }
+              // Prefer Ecwid API if present
+              if (window.Ecwid && window.Ecwid.Cart && typeof window.Ecwid.Cart.get === 'function') {
+                window.Ecwid.Cart.get(function(cart) {
+                  var cnt = (cart && (cart.productsQuantity || (Array.isArray(cart.items) ? cart.items.reduce(function(a,b){return a + (Number(b.quantity)||0)},0) : 0))) || 0;
+                  postCount(cnt);
+                });
+              } else {
+                // Fallback DOM probe
+                var items = document.querySelectorAll('.ec-cart-item, .cart-item, [data-cart-item]');
+                postCount(items ? items.length : 0);
+              }
+            } catch(_) {}
+            true;
+          })();
+        `);
+      }
     }, [ref, tabKey, hydrateCartStorage]);
 
     const handleShouldStartLoadWithRequest = useCallback(
@@ -2972,7 +3200,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           );
 
           if (!isAllowedHost) {
-            console.log(`[WebShell:${tabKey}] 🚫 Blocking navigation to external host:`, url);
+            debugLog(`[WebShell:${tabKey}] 🚫 Blocking navigation to external host:`, url);
             // Silently block external links in demo mode - no alert spam
             return false;
           }
@@ -2981,7 +3209,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           if (REVIEW_BUILD && REVIEW_DEMO_FAKE_AUTH) {
             const isAuthRoute = AUTH_PATTERNS.some((pattern) => normalizedUrl.includes(pattern));
             if (isAuthRoute) {
-              console.log(`[WebShell:${tabKey}] 🔐 Intercepted auth route:`, url);
+              debugLog(`[WebShell:${tabKey}] 🔐 Intercepted auth route:`, url);
               const toast = 'Demo build: already signed in as Apple Reviewer.';
               if (Platform.OS === 'android') {
                 ToastAndroid.show(toast, ToastAndroid.SHORT);
@@ -2996,7 +3224,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           if (REVIEW_BUILD && REVIEW_DEMO_FAKE_CHECKOUT) {
             const isCheckoutRoute = CHECKOUT_PATTERNS.some((pattern) => normalizedUrl.includes(pattern));
             if (isCheckoutRoute) {
-              console.log(`[WebShell:${tabKey}] 🛒 Intercepted checkout route:`, url);
+              debugLog(`[WebShell:${tabKey}] 🛒 Intercepted checkout route:`, url);
               
               // Trigger cart data extraction asynchronously (don't block navigation decision)
               setTimeout(() => {
@@ -3044,7 +3272,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                           items
                         }));
                       } catch (e) {
-                        console.error('[FakeCheckout] Error extracting cart data:', e);
+                        debugError('[FakeCheckout] Error extracting cart data:', e);
                         // Send minimal fallback
                         window.ReactNativeWebView?.postMessage(JSON.stringify({
                           type: 'FAKE_CHECKOUT_DATA',
@@ -3071,7 +3299,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
           return true;
         } catch (error) {
-          console.error(`[WebShell:${tabKey}] ❌ Error in shouldStart handler:`, error);
+          debugError(`[WebShell:${tabKey}] ❌ Error in shouldStart handler:`, error);
           return false;
         }
       },
@@ -3101,39 +3329,24 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
 
     useFocusEffect(
       useCallback(() => {
-        console.log(`[WebShell:${tabKey}] 🎯 Tab focused`);
         isActiveRef.current = true;
         const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
         if (actualRef && isMountedRef.current) {
-          console.log(`[WebShell:${tabKey}] 📤 Sending TAB_ACTIVE=true`);
           actualRef.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: true }));
           // Don't reload on focus - let the page load naturally
           hydrateCartStorage(actualRef, { tabKey, allowReload: false });
           
+          // Single delayed PING instead of multiple
           setTimeout(() => {
-            console.log(`[WebShell:${tabKey}] 📤 Sending PING for cart check`);
-            actualRef.postMessage(JSON.stringify({ type: 'PING' }));
-          }, 100);
-          if (tabKey === 'home') {
-            const extraFocusPings = [700, 1800, 3200, 5200, 7200];
-            extraFocusPings.forEach((delay, idx) => {
-              setTimeout(() => {
-                if (!isMountedRef.current || !isActiveRef.current) return;
-                const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
-                if (targetRef) {
-                  console.log(`[WebShell:${tabKey}] 📤 Sending extra focus PING after ${delay}ms (focus seq #${idx + 2})`);
-                  targetRef.postMessage(JSON.stringify({ type: 'PING' }));
-                }
-              }, delay);
-            });
-          }
+            if (isMountedRef.current && isActiveRef.current) {
+              actualRef.postMessage(JSON.stringify({ type: 'PING' }));
+            }
+          }, 1000);
         }
         return () => {
-          console.log(`[WebShell:${tabKey}] 👋 Tab blurred`);
           isActiveRef.current = false;
           const actualRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
           if (actualRef) {
-            console.log(`[WebShell:${tabKey}] 📤 Sending TAB_ACTIVE=false`);
             actualRef.postMessage(JSON.stringify({ type: 'TAB_ACTIVE', value: false }));
           }
         };
@@ -3180,17 +3393,17 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                       } catch(err){}
                     });
                   }
-                  console.log('[CartStorage] ✅ Cart hydrated BEFORE Ecwid initialization (sync)');
+                  debugLog('[CartStorage] ✅ Cart hydrated BEFORE Ecwid initialization (sync)');
                 }
               } catch (err) {
-                console.error('[CartStorage] ❌ Hydration error:', err);
+                debugError('[CartStorage] ❌ Hydration error:', err);
               }
             })();
           `;
-          console.log(`[WebShell:${tabKey}] ✅ Generated INITIAL cart hydration script (${Object.keys(payload.local).length} localStorage keys, sig: ${sig.substring(0, 8)})`);
+          debugLog(`[WebShell:${tabKey}] ✅ Generated INITIAL cart hydration script (${Object.keys(payload.local).length} localStorage keys, sig: ${sig.substring(0, 8)})`);
           return script;
         } catch (error) {
-          console.warn('[WebShell] Failed to generate initial cart hydration script', error);
+          debugWarn('[WebShell] Failed to generate initial cart hydration script', error);
         }
       }
       return '';
@@ -3249,17 +3462,17 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
                       } catch(err){}
                     });
                   }
-                  console.log('[CartStorage] ✅ Cart hydrated BEFORE Ecwid initialization (async)');
+                  debugLog('[CartStorage] ✅ Cart hydrated BEFORE Ecwid initialization (async)');
                 }
               } catch (err) {
-                console.error('[CartStorage] ❌ Hydration error:', err);
+                debugError('[CartStorage] ❌ Hydration error:', err);
               }
             })();
           `;
           setCartHydrationScript(script);
-          console.log(`[WebShell:${tabKey}] ✅ Generated cart hydration script (${Object.keys(payload.local).length} localStorage keys, sig: ${sig.substring(0, 8)})`);
+          debugLog(`[WebShell:${tabKey}] ✅ Generated cart hydration script (${Object.keys(payload.local).length} localStorage keys, sig: ${sig.substring(0, 8)})`);
         } catch (error) {
-          console.warn('[WebShell] Failed to generate cart hydration script', error);
+          debugWarn('[WebShell] Failed to generate cart hydration script', error);
           setCartHydrationScript('');
           setCartSignature('');
         }
@@ -3286,26 +3499,17 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
       return { uri: normalizedUrl, headers };
     }, [initialUrl, initialHeaders]);
 
-    useEffect(() => {
-      console.log(`[WebShell:${tabKey}] 🎨 Component mounted/updated - initialUrl:`, initialUrl);
-      console.log(`[WebShell:${tabKey}] 🎨 Computed source:`, computedSource);
-      console.log(`[WebShell:${tabKey}] 🎨 WebView ref:`, webviewRef.current ? 'available' : 'null');
-    }, [initialUrl, computedSource, tabKey]);
-
-    // Debug: Log when WebView is about to render
-    useEffect(() => {
-      console.log(`[WebShell:${tabKey}] 🎨 RENDERING WebView component - source:`, computedSource);
-      console.log(`[WebShell:${tabKey}] 🎨 Container style:`, styles.container);
-    }, [computedSource, tabKey]);
+    // Removed excessive logging useEffect hooks that cause re-renders
 
     return (
       <View style={styles.container} testID={`webview-container-${tabKey}`} collapsable={false}>
         <WebView
-          key={`webview-${tabKey}-v11`}
-          style={{ flex: 1, backgroundColor: '#FFFFFF' }} // White background to prevent blank screen
+          key={`webview-${tabKey}-v12`} // Incremented to force remount
+          style={{ flex: 1, backgroundColor: '#FFFFFF' }} // White background - content will show on top
           collapsable={false}
+          originWhitelist={['*']}
           ref={(r) => {
-            console.log(`[WebShell:${tabKey}] 🔗 WebView ref callback - ref:`, r ? 'SET' : 'NULL');
+            debugLog(`[WebShell:${tabKey}] 🔗 WebView ref callback - ref:`, r ? 'SET' : 'NULL');
             if (ref) {
               if (typeof ref === 'function') ref(r);
               else ref.current = r;
@@ -3313,6 +3517,13 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
             webviewRef.current = r;
           }}
           source={computedSource}
+          // Force immediate render
+          renderError={() => (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>Failed to load</Text>
+              <Text style={styles.errorSubtext}>Tap to reload or check connection</Text>
+            </View>
+          )}
           renderLoading={() => (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#22c55e" />
@@ -3329,7 +3540,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           thirdPartyCookiesEnabled
           javaScriptEnabled
           domStorageEnabled
-          cacheEnabled={false}
+          cacheEnabled={true}
           incognito={false}
           setSupportMultipleWindows={false}
           allowsBackForwardNavigationGestures
@@ -3337,41 +3548,160 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           injectedJavaScriptBeforeContentLoaded={`
             ${INJECTED_CSS}
             ${cartHydrationScript}
+            // Minimal visibility fix - only run once, no observers
+            (function() {
+              try {
+                if (document.body) {
+                  document.body.style.display = '';
+                  document.body.style.visibility = 'visible';
+                  document.body.style.opacity = '1';
+                }
+                if (document.documentElement) {
+                  document.documentElement.style.display = '';
+                  document.documentElement.style.visibility = 'visible';
+                  document.documentElement.style.opacity = '1';
+                }
+              } catch(e) {}
+            })();
             true;
           `}
           injectedJavaScript={`
-            console.log('🔥 [INJECT] Starting all scripts...');
-            try { ${COOKIE_INJECTION_SCRIPT} } catch(e) { console.error('Cookie error:', e); }
-            try { ${REVIEW_LABEL_SCRIPT} } catch(e) { console.error('Review error:', e); }
-            
-            console.log('🔥 [INJECT] About to run SAFE_MODE_SCRIPT...');
-            try { 
-              ${SAFE_MODE_SCRIPT}
-              console.log('🔥 [INJECT] SAFE_MODE_SCRIPT completed');
-            } catch(e) { 
-              console.error('🔥 [INJECT] SAFE_MODE_SCRIPT ERROR:', e); 
-            }
-            
-            try { ${CHECKOUT_INTERCEPT_SCRIPT} } catch(e) { console.error('Checkout error:', e); }
-            try { ${SHARE_SCRIPT} } catch(e) { console.error('Share error:', e); }
-            try { ${CART_COUNTER_SCRIPT} } catch(e) { console.error('Cart error:', e); }
-            try { ${createInjectedJS(tabKey)} } catch(e) { console.error('Tab error:', e); }
-            
-            setTimeout(() => {
-              console.log('🔍 WEBVIEW DEBUG - Script injection completed');
-              console.log('🔍 Window.ReactNativeWebView available:', !!window.ReactNativeWebView);
-              console.log('🔍 Cart script installed:', !!window.__ghCartCounter);
-              console.log('🔍 Share script installed:', !!window.__ghNativeShare);
-              console.log('🔍 Review labels active:', ${REVIEW_BUILD});
-              
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'DEBUG_TEST',
-                  value: 'WebView script is running',
-                  timestamp: Date.now()
-                }));
+            debugLog('🔥 [INJECT] Starting essential scripts only...');
+
+            // AGGRESSIVE image quality fix - force high-res images
+            (function() {
+              let urlLogCount = 0;
+
+              function fixBlurryImages() {
+                try {
+                  const images = document.querySelectorAll('img');
+                  let fixed = 0;
+
+                  images.forEach(img => {
+                    // Remove lazy loading attributes
+                    if (img.loading) img.loading = 'eager';
+                    img.removeAttribute('loading');
+
+                    // Remove any blur filters
+                    if (img.style.filter && img.style.filter.includes('blur')) {
+                      img.style.filter = 'none';
+                      fixed++;
+                    }
+
+                    // Force srcset to use highest resolution
+                    if (img.srcset) {
+                      const srcsetParts = img.srcset.split(',');
+                      if (srcsetParts.length > 0) {
+                        const highestRes = srcsetParts[srcsetParts.length - 1].trim().split(' ')[0];
+                        if (highestRes && !img.src.includes(highestRes)) {
+                          img.src = highestRes;
+                          img.removeAttribute('srcset'); // Prevent browser from downgrading
+                          fixed++;
+                        }
+                      }
+                    }
+
+                    // Ecwid specific: Replace any low-res URLs with high-res versions
+                    if (img.src) {
+                      const originalSrc = img.src;
+                      let newSrc = originalSrc
+                        .replace(/\\/fit\\/\\d+x\\d+\\//g, '/') // Remove /fit/WIDTHxHEIGHT/
+                        .replace(/\\/\\d+x\\d+\\//g, '/') // Remove /WIDTHxHEIGHT/
+                        .replace(/[?&]w=\\d+/g, '?w=2000') // Increase width to 2000
+                        .replace(/[?&]h=\\d+/g, '&h=2000') // Increase height to 2000
+                        .replace(/sq=\\d+/g, 'sq=2000'); // Square dimension to 2000
+
+                      // For Ecwid CDN URLs, replace any size parameters
+                      if (newSrc.includes('ecwid') || newSrc.includes('images-')) {
+                        newSrc = newSrc.replace(/_(\\d+x\\d+|\\d+)/g, '_2000');
+                      }
+
+                      if (newSrc !== originalSrc) {
+                        img.src = newSrc;
+                        fixed++;
+                      }
+                    }
+
+                    // Fix data-src lazy loading (common pattern)
+                    if (img.dataset && img.dataset.src && img.dataset.src !== img.src) {
+                      img.src = img.dataset.src;
+                      fixed++;
+                    }
+
+                    // Force image to be visible and not faded
+                    if (img.style.opacity && parseFloat(img.style.opacity) < 1) {
+                      img.style.opacity = '1';
+                    }
+                  });
+
+                  // Reduced logging
+                  // if (fixed > 0) debugLog('[ImageFix] Upgraded', fixed, 'images');
+                } catch(e) {
+                  debugError('[ImageFix] Error:', e);
+                }
               }
-            }, 2000);
+
+              // Disable lazy loading globally
+              if (typeof IntersectionObserver !== 'undefined') {
+                const OriginalIO = IntersectionObserver;
+                window.IntersectionObserver = function(callback, options) {
+                  // Force all images to be considered "visible"
+                  return new OriginalIO((entries) => {
+                    entries.forEach(entry => {
+                      entry.isIntersecting = true;
+                      entry.intersectionRatio = 1;
+                    });
+                    callback(entries, this);
+                  }, options);
+                };
+              }
+
+              // Run once on load - no observers to avoid freezing
+              fixBlurryImages();
+              
+              // Run again after a delay, but only once
+              setTimeout(fixBlurryImages, 2000);
+
+              // debugLog('[ImageFix] Image optimizer active');
+            })();
+
+            // Run scripts asynchronously to avoid blocking page load
+            setTimeout(() => {
+              try { ${COOKIE_INJECTION_SCRIPT} } catch(e) { debugError('Cookie error:', e); }
+            }, 100);
+
+            setTimeout(() => {
+              try { ${REVIEW_LABEL_SCRIPT} } catch(e) { debugError('Review error:', e); }
+            }, 200);
+
+            setTimeout(() => {
+              debugLog('🔥 [INJECT] Running SAFE_MODE_SCRIPT...');
+              try {
+                ${SAFE_MODE_SCRIPT}
+                debugLog('🔥 [INJECT] SAFE_MODE_SCRIPT completed');
+              } catch(e) {
+                debugError('🔥 [INJECT] SAFE_MODE_SCRIPT ERROR:', e);
+              }
+            }, 300);
+
+            setTimeout(() => {
+              try { ${CHECKOUT_INTERCEPT_SCRIPT} } catch(e) { debugError('Checkout error:', e); }
+            }, 400);
+
+            setTimeout(() => {
+              try { ${SHARE_SCRIPT} } catch(e) { debugError('Share error:', e); }
+            }, 500);
+
+            setTimeout(() => {
+              try { ${CART_COUNTER_SCRIPT} } catch(e) { debugError('Cart error:', e); }
+            }, 600);
+
+            setTimeout(() => {
+              try { ${createInjectedJS(tabKey)} } catch(e) { debugError('Tab error:', e); }
+            }, 700);
+
+            debugLog('🔍 WEBVIEW DEBUG - Scripts scheduled, page should load immediately');
+            true;
           `}
           onMessage={handleMessage}
           onError={handleError}
@@ -3380,18 +3710,17 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           onLoadEnd={handleLoadEnd}
           onLoad={(syntheticEvent) => {
             // Just log - don't manage loading state
-            console.log(`[WebShell:${tabKey}] 📥 onLoad fired`);
+            debugLog(`[WebShell:${tabKey}] 📥 onLoad fired`);
           }}
           onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
-          startInLoadingState={true}
-          originWhitelist={['*']}
+          startInLoadingState={false} // Disabled to prevent frozen loading spinner in iOS Simulator
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           allowFileAccess
           allowUniversalAccessFromFileURLs
           mixedContentMode="always"
           onContentProcessDidTerminate={() => {
-            console.error(`[WebShell:${tabKey}] ⚠️ WebView content process terminated - reloading`);
+            debugError(`[WebShell:${tabKey}] ⚠️ WebView content process terminated - reloading`);
             const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
             if (targetRef) {
               targetRef.reload();
@@ -3399,7 +3728,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
           }}
           onRenderProcessGone={(syntheticEvent) => {
             const { nativeEvent } = syntheticEvent;
-            console.error(`[WebShell:${tabKey}] ⚠️ WebView render process gone:`, nativeEvent);
+            debugError(`[WebShell:${tabKey}] ⚠️ WebView render process gone:`, nativeEvent);
           }}
           {...restProps}
         />
@@ -3432,7 +3761,7 @@ export const WebShell = forwardRef<WebView, WebShellProps>(
   }
 );
 
-WebShell.displayName = 'WebShell';
+WebShellComponent.displayName = 'WebShell';
 
 const styles = StyleSheet.create({
   container: {
@@ -3473,3 +3802,15 @@ const styles = StyleSheet.create({
     zIndex: 1000, // Above WebView but below modals
   },
 });
+
+// Memoize to prevent excessive re-renders
+export const WebShell = React.memo(WebShellComponent, (prevProps, nextProps) => {
+  // Only re-render if these props change
+  return (
+    prevProps.initialUrl === nextProps.initialUrl &&
+    prevProps.tabKey === nextProps.tabKey &&
+    JSON.stringify(prevProps.initialHeaders) === JSON.stringify(nextProps.initialHeaders)
+  );
+}) as typeof WebShellComponent;
+
+WebShell.displayName = 'WebShell';

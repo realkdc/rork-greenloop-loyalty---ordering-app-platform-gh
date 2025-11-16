@@ -1,5 +1,7 @@
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
+// Dynamic import to avoid native module requirement on simulators/dev clients
+type NotificationsModule = typeof import("expo-notifications");
+let Notifications: NotificationsModule | null = null;
 import { Platform } from "react-native";
 
 type EasExtra = {
@@ -9,7 +11,7 @@ type EasExtra = {
 };
 
 export type RegisterPushResult = {
-  status: Notifications.PermissionStatus;
+  status: import("expo-notifications").PermissionStatus;
   token?: string;
 };
 
@@ -33,6 +35,9 @@ const getProjectId = (): string | undefined => {
 };
 
 export const registerForPushNotificationsAsync = async (): Promise<RegisterPushResult> => {
+  if (!Notifications) {
+    try { Notifications = await import("expo-notifications"); } catch { return { status: "granted" as any }; }
+  }
   let { status } = await Notifications.getPermissionsAsync();
 
   if (status !== "granted") {

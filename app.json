@@ -16,15 +16,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhauscc.customer",
-      "buildNumber": "30",
+      "buildNumber": "32",
       "associatedDomains": [
         "applinks:greenhaus-site.vercel.app"
       ],
       "infoPlist": {
         "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
         "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
-        "NSLocationAlwaysUsageDescription": "Allow $(PRODUCT_NAME) to use your location.",
         "NSLocationWhenInUseUsageDescription": "GreenHaus uses your location to verify you're in a legal pickup or delivery area and to show nearby store options.",
         "UIBackgroundModes": [
           "remote-notification"
@@ -78,8 +76,7 @@
         {
           "isAndroidForegroundServiceEnabled": true,
           "isAndroidBackgroundLocationEnabled": true,
-          "isIosBackgroundLocationEnabled": false,
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location."
+          "isIosBackgroundLocationEnabled": false
         }
       ],
       "expo-notifications",

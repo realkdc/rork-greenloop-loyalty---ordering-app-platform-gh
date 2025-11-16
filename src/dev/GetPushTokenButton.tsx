@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import * as Notifications from "expo-notifications";
+type NotificationsModule = typeof import("expo-notifications");
+let Notifications: NotificationsModule | null = null;
 import { registerForPushNotificationsAsync } from "../notifications/registerPush";
 
 export const GetPushTokenButton = () => {
-  const [status, setStatus] = useState<Notifications.PermissionStatus>(Notifications.PermissionStatus.UNDETERMINED);
+  const [status, setStatus] = useState<any>("unavailable");
   const [token, setToken] = useState<string | undefined>();
   const [isRequesting, setIsRequesting] = useState(false);
 
   useEffect(() => {
     const loadPermission = async () => {
-      const permissions = await Notifications.getPermissionsAsync();
-      setStatus(permissions.status);
+      try {
+        if (!Notifications) {
+          Notifications = await import("expo-notifications");
+        }
+        const permissions = await Notifications.getPermissionsAsync();
+        setStatus(permissions.status);
+      } catch {
+        setStatus("unavailable");
+      }
     };
 
     void loadPermission();

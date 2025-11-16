@@ -27,10 +27,22 @@ export const SharedWebViewHost: React.FC = () => {
     currentRoute = tabsRoute.name;
   }
   
+  // Normalize route name to a supported tab key for WebShell
+  const tabKey: 'home' | 'search' | 'cart' | 'orders' | 'profile' =
+    currentRoute === 'search'
+      ? 'search'
+      : currentRoute === 'cart'
+        ? 'cart'
+        : currentRoute === 'orders'
+          ? 'orders'
+          : currentRoute === 'profile'
+            ? 'profile'
+            : 'home';
+
   // Only hide WebView on tabs that DON'T need it (orders, profile/account)
   // Show by default for home, search, cart (and during loading/undefined)
   // Default to showing if we can't determine the route (safety fallback)
-  const shouldShowWebView = currentRoute === undefined || (currentRoute !== 'orders' && currentRoute !== 'profile');
+  const shouldShowWebView = currentRoute === undefined || (tabKey !== 'orders' && tabKey !== 'profile');
 
   // ALWAYS call useEffect hooks - never conditionally
   useEffect(() => {
@@ -53,11 +65,11 @@ export const SharedWebViewHost: React.FC = () => {
 
   return (
     <View style={styles.container} testID="shared-webview-host" collapsable={false}>
-      <WebShell
-        ref={webviewRef}
-        initialUrl={currentUrl}
-        tabKey="shared"
-      />
+        <WebShell
+          ref={webviewRef}
+          initialUrl={currentUrl}
+          tabKey={tabKey}
+        />
     </View>
   );
 };
@@ -73,4 +85,3 @@ const styles = StyleSheet.create({
     zIndex: 0, // Behind buttons/modals
   },
 });
-

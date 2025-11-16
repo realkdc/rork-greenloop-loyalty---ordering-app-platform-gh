@@ -1,32 +1,206 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { View as RNView } from "react-native";
-import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback } from "react-native";
-import { useFocusEffect, useIsFocused } from "@react-navigation/native";
-import { PromoCard } from "@/components/PromoCard";
-import { useApp } from "@/contexts/AppContext";
-import { getPromos, type PromoRecord } from "@/src/lib/promos";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator } from "react-native";
+import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
+import { useApp } from "@/contexts/AppContext";
+import { useRouter } from "expo-router";
+import { PromoCard } from "@/components/PromoCard";
+import { getPromos, type PromoRecord } from "@/src/lib/promos";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useActiveStoreId } from "@/src/hooks/useActiveStoreId";
-import { WebShell } from "@/components/WebShell";
-import { Platform } from "react-native";
-import type { WebView } from "react-native-webview";
 
-function normalizeStore(storeId: string | null | undefined): "cookeville" | "crossville" | null {
-  if (!storeId) return null;
-  const value = storeId.toLowerCase();
-  if (value.includes("cookeville")) return "cookeville";
-  if (value.includes("crossville")) return "crossville";
-  if (value === "cookeville" || value === "crossville") return value;
-  return null;
-}
+// Minimal CSS to hide vape content and clean up UI
+const INJECTED_CSS = `
+  /* Hide vape content - more aggressive selectors */
+  #ins-tile__category-item-GOrgE,
+  a[aria-label*="TOASTED TUESDAY"],
+  a[href*="toasted"][href*="tuesday"],
+  .grid-category--id-180876996,
+  a[href*="disposables"],
+  a[href*="cartridges"],
+  a[href*="Disposables"],
+  a[href*="Cartridges"],
+  [href*="/disposables"],
+  [href*="/cartridges"],
+  div:has(> a[href*="disposables"]),
+  div:has(> a[href*="cartridges"]),
+  /* Hide by text content */
+  a:has(h2:contains("Disposables")),
+  a:has(h2:contains("Cartridges")),
+  /* Category tiles */
+  .ec-grid__category-item:has(a[href*="disposables"]),
+  .ec-grid__category-item:has(a[href*="cartridges"]),
+  .grid-category:has(a[href*="disposables"]),
+  .grid-category:has(a[href*="cartridges"]) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Hide header and footer */
+  header, .ins-header, .site-header,
+  footer, .site-footer, .ec-footer,
+  nav, .navigation, .site-nav,
+  .breadcrumbs, .ec-breadcrumbs {
+    display: none !important;
+  }
+
+  /* Add padding where header was */
+  body { padding-top: 20px !important; }
+`;
+
+const INJECT_SCRIPT = `
+  (function() {
+    const style = document.createElement('style');
+    style.textContent = \`${INJECTED_CSS}\`;
+    document.head.appendChild(style);
+
+    // JavaScript-based hiding for vape content
+    function hideVapeContent() {
+      // Find all links and check their href and text content
+      document.querySelectorAll('a').forEach(link => {
+        const href = link.getAttribute('href') || '';
+        const text = link.textContent || '';
+        const ariaLabel = link.getAttribute('aria-label') || '';
+
+        // Check if it's vape-related
+        if (
+          href.includes('disposable') ||
+          href.includes('cartridge') ||
+          href.includes('toasted') ||
+          text.toLowerCase().includes('disposable') ||
+          text.toLowerCase().includes('cartridge') ||
+          text.toLowerCase().includes('toasted tuesday') ||
+          ariaLabel.toLowerCase().includes('toasted tuesday')
+        ) {
+          // Hide the link and its parent container
+          link.style.display = 'none';
+          if (link.parentElement) {
+            link.parentElement.style.display = 'none';
+          }
+        }
+      });
+
+      // Also hide headers, footers, and breadcrumbs
+      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          el.style.display = 'none';
+        });
+      });
+    }
+
+    // Send cart count to React Native
+    function sendCartCount() {
+      let count = 0;
+
+      // Try cart badge selectors (works even when hidden with CSS)
+      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
+      if (badge && badge.textContent) {
+        const badgeCount = parseInt(badge.textContent.trim()) || 0;
+        count = badgeCount;
+      }
+
+      // Always send the count
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
+    }
+
+    // Watch for "Add to bag" button clicks and extract count from response
+    function watchAddToBag() {
+      // Intercept fetch requests to cart API
+      const originalFetch = window.fetch;
+      window.fetch = function(...args) {
+        const promise = originalFetch.apply(this, args);
+        const url = args[0]?.toString() || '';
+
+        // Check if it's a cart-related request
+        if (url.includes('/cart') || url.includes('add-to-cart')) {
+          promise.then(response => {
+            if (response.ok) {
+              // After successful cart addition, force check badge
+              setTimeout(() => {
+                sendCartCount();
+              }, 500);
+            }
+            return response;
+          }).catch(() => {});
+        }
+
+        return promise;
+      };
+
+      // Also watch for DOM mutations that might indicate cart update
+      const cartObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          // Check if badge was updated
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === 1) {
+              const badge = node.querySelector?.('.ec-cart-widget__count, .ec-minicart__count');
+              if (badge) {
+                sendCartCount();
+              }
+            }
+          });
+        });
+      });
+
+      // Observe the entire document for cart badge changes
+      const headerArea = document.querySelector('header') || document.body;
+      if (headerArea) {
+        cartObserver.observe(headerArea, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ['class']
+        });
+      }
+    }
+
+    // Run immediately and on intervals
+    hideVapeContent();
+    sendCartCount();
+    watchAddToBag();
+
+    // More aggressive initial cart count check (every 500ms for first 5 seconds)
+    let initialCheckCount = 0;
+    const initialCheck = setInterval(() => {
+      sendCartCount();
+      initialCheckCount++;
+      if (initialCheckCount >= 10) {
+        clearInterval(initialCheck);
+      }
+    }, 500);
+
+    setInterval(() => {
+      hideVapeContent();
+      sendCartCount();
+    }, 2000);
+
+    // Watch for DOM changes
+    const observer = new MutationObserver(() => {
+      hideVapeContent();
+      sendCartCount();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  })();
+  true;
+`;
 
 export default function HomeTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.home = ref;
-  const isFocused = useIsFocused();
-  const { storeId, ready } = useActiveStoreId();
+  const { setCartCount, selectedStoreId } = useApp();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+
+  // WebView loading state
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Promo modal state
   const [promos, setPromos] = useState<PromoRecord[]>([]);
   const [loadingPromos, setLoadingPromos] = useState(true);
   const [currentPromoIndex, setCurrentPromoIndex] = useState(0);
@@ -34,46 +208,16 @@ export default function HomeTab() {
   const dismissedForSession = useRef(false);
   const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const promoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const insets = useSafeAreaInsets();
 
-  const activeStoreId = useMemo(() => {
-    if (!ready) return null;
-    if (storeId) return storeId;
-    console.warn("[Promo] storeId not ready yet");
-    return null;
-  }, [storeId, ready]);
-
-  // Clean up store name for display
-  const getCleanStoreName = useCallback((storeId?: string | null) => {
-    if (!storeId) return 'STORE';
-    
-    if (storeId.includes('greenhaus-tn-cookeville')) {
-      return 'GREENHAUS COOKEVILLE';
-    } else if (storeId.includes('greenhaus-tn-crossville')) {
-      return 'GREENHAUS CROSSVILLE';
-    }
-    
-    return storeId.toUpperCase().replace(/-/g, ' ');
-  }, []);
-
-  const openPromoUrl = useCallback((url: string) => {
-    if (!ref.current) return;
-    const script = `(() => { try { window.location.href = ${JSON.stringify(url)}; } catch (_) {} return true; })();`;
-    ref.current.injectJavaScript(script);
-  }, []);
-
+  // Fetch promos
   const fetchPromos = useCallback(async () => {
-    if (!activeStoreId) {
-      console.log("[promos] waiting for storeId...");
+    if (!selectedStoreId) {
       return;
     }
-    
-    console.log(`[promos] fetching promos for ${activeStoreId}`);
-    
+
     try {
       setLoadingPromos(true);
-      const items = await getPromos(activeStoreId);
-      console.log("[promos]", { storeId: activeStoreId, count: items.length });
+      const items = await getPromos(selectedStoreId);
       setPromos(items);
       if (items.length > 0) {
         setCurrentPromoIndex(0);
@@ -84,7 +228,7 @@ export default function HomeTab() {
     } finally {
       setLoadingPromos(false);
     }
-  }, [activeStoreId]);
+  }, [selectedStoreId]);
 
   useEffect(() => {
     fetchPromos();
@@ -92,8 +236,9 @@ export default function HomeTab() {
 
   useEffect(() => {
     dismissedForSession.current = false;
-  }, [activeStoreId]);
+  }, [selectedStoreId]);
 
+  // Auto-show modal after delay
   useEffect(() => {
     if (promos.length > 0 && !dismissedForSession.current) {
       if (promoTimerRef.current) {
@@ -113,6 +258,7 @@ export default function HomeTab() {
     };
   }, [promos]);
 
+  // Auto-cycle promos in modal
   useEffect(() => {
     if (!isModalOpen || promos.length <= 1) {
       if (cycleTimerRef.current) {
@@ -181,34 +327,93 @@ export default function HomeTab() {
 
   const currentPromo = promos[currentPromoIndex] ?? null;
 
+  const openPromoUrl = useCallback((url: string) => {
+    if (!ref.current) return;
+    const script = `(() => { try { window.location.href = ${JSON.stringify(url)}; } catch (_) {} return true; })();`;
+    ref.current.injectJavaScript(script);
+  }, []);
+
   const handlePromoView = useCallback((url: string) => {
     openPromoUrl(url);
     closeModal();
   }, [openPromoUrl, closeModal]);
 
-  // Simplified: Don't force navigation - let WebView load naturally
-  // This prevents reload loops and HTTP 400 errors
-  useFocusEffect(
-    React.useCallback(() => {
-      console.log('[HomeTab] 🏠 Tab focused - WebView will load with initialUrl');
-      // Let the WebView handle navigation naturally - no forced navigation
-    }, [])
-  );
+  const getCleanStoreName = useCallback((storeId?: string | null) => {
+    if (!storeId) return 'STORE';
 
-  // Debug: Log when rendering
-  useEffect(() => {
-    console.log('[HomeTab] 🎨 RENDERING - isFocused:', isFocused, 'ref available:', !!ref.current);
-  }, [isFocused, ref]);
+    if (storeId.includes('cookeville')) {
+      return 'GREENHAUS COOKEVILLE';
+    } else if (storeId.includes('crossville')) {
+      return 'GREENHAUS CROSSVILLE';
+    }
 
-  console.log('[HomeTab] 🔍 CURRENT RENDER - isFocused:', isFocused, 'will render WebView:', isFocused);
+    return storeId.toUpperCase().replace(/-/g, ' ');
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    ref.current?.reload();
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
+  const handleNavigationStateChange = (navState: any) => {
+    const url = navState.url || '';
+
+    // If navigated to cart page, switch to cart tab and reload it
+    if (url.includes('/cart') || url.includes('/products/cart')) {
+      // Reload cart tab to show updated items
+      const cartRef = webviewRefs.cart?.current;
+      if (cartRef) {
+        cartRef.reload();
+      }
+      router.push('/(tabs)/cart');
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <WebShell
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#5DB075" />
+        </View>
+      )}
+      <WebView
         ref={ref}
-        initialUrl="https://greenhauscc.com/"
-        tabKey="home"
+        source={{ uri: 'https://greenhauscc.com/' }}
+        style={styles.webview}
+        originWhitelist={['*']}
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+        allowFileAccess
+        allowUniversalAccessFromFileURLs
+        mixedContentMode="always"
+        javaScriptEnabled
+        domStorageEnabled
+        pullToRefreshEnabled={true}
+        injectedJavaScript={INJECT_SCRIPT}
+        onLoadStart={() => setIsLoading(true)}
+        onLoadEnd={() => {
+          setIsLoading(false);
+          setRefreshing(false);
+          ref.current?.injectJavaScript(INJECT_SCRIPT);
+        }}
+        onNavigationStateChange={handleNavigationStateChange}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'CART_COUNT') {
+              setCartCount(data.count);
+            }
+          } catch (e) {}
+        }}
+        renderLoading={() => (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#5DB075" />
+          </View>
+        )}
+        startInLoadingState={false}
       />
+
       {promos.length > 0 && !isModalOpen && (
         <TouchableOpacity
           onPress={openModal}
@@ -313,7 +518,21 @@ export default function HomeTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    // WebView fills entire container
+    backgroundColor: '#FFFFFF',
+  },
+  webview: {
+    flex: 1,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
   },
   fab: {
     position: "absolute",

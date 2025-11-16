@@ -9,6 +9,7 @@ import { MOCK_REWARDS } from '@/mocks/rewards';
 import { cartBadge } from '@/lib/cartBadge';
 import { cartState } from '@/lib/cartState';
 import type { Transaction, Reward, Campaign } from '@/types';
+import { debugLog } from '@/lib/logger';
 
 interface AppState {
   transactions: Transaction[];
@@ -18,7 +19,7 @@ interface AppState {
   shopUrl: string;
   setShopUrl: (url: string) => void;
   cartCount: number;
-  setCartCount: (count: number | null) => void;
+  setCartCount: (count: number | null, confirmed?: boolean) => void;
   onboardingCompleted: boolean;
   selectedStoreId: string | null;
   lastKnownState: string | null;
@@ -47,13 +48,14 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   const [lastKnownState, setLastKnownStateState] = useState<string | null>(null);
 
   const hydrationRef = useRef(false);
+  const zeroCountTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const persistCartCount = useCallback(async (value: number) => {
     try {
       await AsyncStorage.setItem(CART_COUNT_KEY, String(value));
-      console.log('[AppContext] 💾 Persisted cart count:', value);
+      debugLog('[AppContext] 💾 Persisted cart count:', value);
     } catch (error) {
-      console.log('[AppContext] ⚠️ Failed to persist cart count:', error);
+      debugLog('[AppContext] ⚠️ Failed to persist cart count:', error);
     }
   }, []);
 
@@ -66,18 +68,18 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         const parsed = parseInt(stored, 10);
         if (!Number.isNaN(parsed) && parsed >= 0) {
           const normalized = Math.min(999, parsed);
-          console.log('[AppContext] 🧰 Async hydrated cart count:', normalized);
+          debugLog('[AppContext] 🧰 Async hydrated cart count:', normalized);
           
           // CRITICAL: Update cartBadge FIRST before setting internal state
           // This ensures the badge has the correct value when listeners subscribe
           cartBadge.set(normalized);
-          console.log('[AppContext] ✅ Set cartBadge to hydrated value:', normalized);
+          debugLog('[AppContext] ✅ Set cartBadge to hydrated value:', normalized);
           
           setCartCountInternal(normalized);
         }
       }
     } catch (error) {
-      console.log('[AppContext] ⚠️ Async hydrate failed:', error);
+      debugLog('[AppContext] ⚠️ Async hydrate failed:', error);
     }
   }, []);
 
@@ -88,32 +90,58 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   // Subscribe to cartBadge changes to keep state in sync
   useEffect(() => {
     const unsubscribe = cartBadge.on((count) => {
-      console.log('[AppContext] 📢 cartBadge update received:', count);
+      debugLog('[AppContext] 📢 cartBadge update received:', count);
       setCartCountInternal(count);
       persistCartCount(count);
     });
     return unsubscribe;
   }, [persistCartCount]);
 
-  const setCartCount = useCallback((count: number | null) => {
-    console.log('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count);
+  const setCartCount = useCallback((count: number | null, confirmed: boolean = false) => {
+    debugLog('[AppContext] 🔄 setCartCount called with:', count, 'type:', typeof count, 'confirmed:', confirmed);
     if (count === null || count === undefined) {
-      console.log('[AppContext] ⏭️ Skipping null/undefined count');
+      debugLog('[AppContext] ⏭️ Skipping null/undefined count');
       return;
     }
     const normalized = Math.max(0, Math.min(999, Math.floor(count)));
-    
-    // Update cartBadge manager (single source of truth)
-    console.log('[AppContext] 📤 Updating cartBadge with:', normalized);
+    const currentCount = cartBadge.get();
+
+    // Clear any pending zero count timer
+    if (zeroCountTimerRef.current) {
+      clearTimeout(zeroCountTimerRef.current);
+      zeroCountTimerRef.current = null;
+    }
+
+    // If trying to set to 0 when we have items in cart:
+    // - Cart tab (confirmed): Trust immediately
+    // - Other tabs (unconfirmed): Delay 3 seconds to ensure page is fully loaded
+    if (normalized === 0 && currentCount > 0 && !confirmed) {
+      debugLog('[AppContext] ⏸️ Delaying 0 count update - will apply in 3s if page is actually empty');
+
+      zeroCountTimerRef.current = setTimeout(() => {
+        debugLog('[AppContext] ⏰ 3s delay passed - applying 0 count (cart likely empty)');
+        cartBadge.set(0);
+        setCartCountInternal(prev => {
+          if (prev === 0) return prev;
+          persistCartCount(0);
+          return 0;
+        });
+        zeroCountTimerRef.current = null;
+      }, 3000);
+      return;
+    }
+
+    // For non-zero counts or confirmed zeros, update immediately
+    debugLog('[AppContext] 📤 Updating cartBadge with:', normalized, confirmed ? '(confirmed)' : '(immediate)');
     cartBadge.set(normalized);
-    
+
     // Also update internal state directly for immediate UI update
     setCartCountInternal(prev => {
       if (prev === normalized) {
-        console.log('[AppContext] ⏭️ Cart count unchanged, skipping state update');
+        debugLog('[AppContext] ⏭️ Cart count unchanged, skipping state update');
         return prev;
       }
-      console.log('[AppContext] ✅ Updating cart count from', prev, 'to', normalized);
+      debugLog('[AppContext] ✅ Updating cart count from', prev, 'to', normalized);
       persistCartCount(normalized);
       return normalized;
     });
@@ -134,29 +162,29 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        console.log('AppContext: Starting initialization');
+        debugLog('AppContext: Starting initialization');
         
         // CRITICAL: Hydrate cart state EARLY so it's available before WebView loads
         // This ensures cart persistence across app restarts
-        console.log('[AppContext] 🛒 Hydrating cart state from storage...');
+        debugLog('[AppContext] 🛒 Hydrating cart state from storage...');
         await cartState.hydrateFromStorage();
         const cartSnapshot = cartState.get();
         if (cartSnapshot) {
-          console.log('[AppContext] ✅ Cart state hydrated - cartId:', cartSnapshot.local?.['PSecwid__86917525PScart'] ? 'present' : 'missing');
+          debugLog('[AppContext] ✅ Cart state hydrated - cartId:', cartSnapshot.local?.['PSecwid__86917525PScart'] ? 'present' : 'missing');
         } else {
-          console.log('[AppContext] ℹ️ No cart state found in storage');
+          debugLog('[AppContext] ℹ️ No cart state found in storage');
         }
         
         const state = await StorageService.getOnboardingState();
         setOnboardingCompletedState(state?.completedOnboarding || false);
         setSelectedStoreIdState(state?.activeStoreId || null);
         setLastKnownStateState(state?.state || null);
-        console.log('[AppContext] Loaded onboarding state:', state);
+        debugLog('[AppContext] Loaded onboarding state:', state);
         
         await CampaignService.initializeCampaigns();
         await refreshTransactions();
         await refreshCampaigns();
-        console.log('AppContext: Initialization complete');
+        debugLog('AppContext: Initialization complete');
       } catch (error) {
         console.error('Failed to initialize app:', error);
       } finally {
@@ -188,7 +216,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     await updateUser({ points: user.points + points });
     await refreshTransactions();
 
-    console.log(`✅ Added ${points} points: ${description}`);
+    debugLog(`✅ Added ${points} points: ${description}`);
   }, [user, updateUser, refreshTransactions]);
 
   const redeemReward = useCallback(async (reward: Reward) => {
@@ -207,7 +235,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     await updateUser({ points: user.points - reward.pointsCost });
     await refreshTransactions();
 
-    console.log(`✅ Redeemed reward: ${reward.title}`);
+    debugLog(`✅ Redeemed reward: ${reward.title}`);
   }, [user, updateUser, refreshTransactions]);
 
   const redeemCode = useCallback(async (
@@ -257,7 +285,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       completedOnboarding: completed,
     });
     setOnboardingCompletedState(completed);
-    console.log('[AppContext] Onboarding completed:', completed);
+    debugLog('[AppContext] Onboarding completed:', completed);
   }, []);
 
   const setSelectedStoreId = useCallback(async (id: string | null) => {
@@ -271,7 +299,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       completedOnboarding: existing?.completedOnboarding || false,
     });
     setSelectedStoreIdState(id);
-    console.log('[AppContext] Selected store ID:', id);
+    debugLog('[AppContext] Selected store ID:', id);
   }, []);
 
   const setLastKnownState = useCallback(async (state: string | null) => {
@@ -285,7 +313,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
       completedOnboarding: existing?.completedOnboarding || false,
     });
     setLastKnownStateState(state);
-    console.log('[AppContext] Last known state:', state);
+    debugLog('[AppContext] Last known state:', state);
   }, []);
 
   const clearOnboarding = useCallback(async () => {
@@ -299,7 +327,7 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
     setOnboardingCompletedState(false);
     setSelectedStoreIdState(null);
     setLastKnownStateState(null);
-    console.log('[AppContext] Onboarding cleared');
+    debugLog('[AppContext] Onboarding cleared');
   }, []);
 
   return useMemo(() => ({

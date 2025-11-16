@@ -3,18 +3,18 @@ import { View, StyleSheet } from 'react-native';
 import type { WebView } from 'react-native-webview';
 
 interface SharedWebViewContextType {
-  webviewRef: React.RefObject<WebView>;
+  webviewRef: React.RefObject<WebView | null>;
   currentUrl: string;
   navigateTo: (url: string) => void;
   reload: () => void;
-  webviewContainerRef: React.RefObject<View>;
+  webviewContainerRef: React.RefObject<View | null>;
 }
 
 const SharedWebViewContext = createContext<SharedWebViewContextType | null>(null);
 
 export const SharedWebViewProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const webviewRef = useRef<WebView>(null);
-  const webviewContainerRef = useRef<View>(null);
+  const webviewRef = useRef<WebView | null>(null);
+  const webviewContainerRef = useRef<View | null>(null);
   const [currentUrl, setCurrentUrl] = useState('https://greenhauscc.com/');
 
   const navigateTo = useCallback((url: string) => {
@@ -135,4 +135,3 @@ export const useSharedWebView = () => {
   }
   return context;
 };
-
