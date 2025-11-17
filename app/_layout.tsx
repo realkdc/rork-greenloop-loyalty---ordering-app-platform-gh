@@ -4,7 +4,7 @@ import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, Component, type ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, AppState } from "react-native";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { WebViewProvider } from "@/contexts/WebViewContext";
@@ -12,6 +12,7 @@ import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
 import { trpc, trpcClient } from "@/lib/trpc";
 import registerPushToken from "@/src/lib/push/registerPushToken";
 import { debugLog } from "@/lib/logger";
+import { trackAnalyticsEvent } from "@/services/analytics";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -141,11 +142,18 @@ function DeepLinkHandler() {
 
 function PushTokenRegistrar() {
   const { selectedStoreId } = useApp();
+  const { user } = useAuth();
   const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
+
+  // Log when component mounts
+  useEffect(() => {
+    debugLog("🔔 [PushTokenRegistrar] Component mounted");
+    debugLog("🔔 [PushTokenRegistrar] Initial selectedStoreId:", selectedStoreId);
+  }, []);
 
   useEffect(() => {
     debugLog("🎯 [PushTokenRegistrar] Effect triggered");
-    debugLog("🎯 [PushTokenRegistrar] selectedStoreId:", selectedStoreId);
+    debugLog("🎯 [PushTokenRegistrar] selectedStoreId:", selectedStoreId, "type:", typeof selectedStoreId);
     debugLog("🎯 [PushTokenRegistrar] backendBaseUrl:", backendBaseUrl);
     debugLog("🎯 [PushTokenRegistrar] process.env.EXPO_PUBLIC_API_URL:", process.env.EXPO_PUBLIC_API_URL);
 
@@ -155,7 +163,7 @@ function PushTokenRegistrar() {
       return;
     }
 
-    debugLog("▶️ [PushTokenRegistrar] Calling registerPushToken...");
+    debugLog("▶️ [PushTokenRegistrar] ✅ Store ID available! Calling registerPushToken with storeId:", selectedStoreId);
     void registerPushToken({
       storeId: selectedStoreId,
       backendBaseUrl,
@@ -163,6 +171,21 @@ function PushTokenRegistrar() {
       optedIn: true,
     });
   }, [backendBaseUrl, selectedStoreId]);
+
+  // Track APP_OPEN on mount and when app comes to foreground
+  useEffect(() => {
+    // Track initial app open
+    trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+
+    // Track when app returns to foreground
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [user?.uid]);
 
   return null;
 }
@@ -188,6 +211,15 @@ export default function RootLayout() {
               shouldShowBanner: true,
               shouldShowList: true,
             }),
+          });
+
+          // Track when user taps on a notification
+          mod.addNotificationResponseReceivedListener((response) => {
+            const { notification } = response;
+            trackAnalyticsEvent('PUSH_OPEN', {
+              campaignId: notification.request.content.data?.campaignId,
+              title: notification.request.content.title,
+            });
           });
         }
       } catch {

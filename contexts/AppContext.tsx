@@ -177,9 +177,12 @@ export const [AppProvider, useApp] = createContextHook<AppState>(() => {
         
         const state = await StorageService.getOnboardingState();
         setOnboardingCompletedState(state?.completedOnboarding || false);
-        setSelectedStoreIdState(state?.activeStoreId || null);
+        const storeId = state?.activeStoreId || null;
+        debugLog('[AppContext] 🏪 Setting selectedStoreId to:', storeId);
+        setSelectedStoreIdState(storeId);
         setLastKnownStateState(state?.state || null);
         debugLog('[AppContext] Loaded onboarding state:', state);
+        debugLog('[AppContext] 🔔 selectedStoreId should now be:', storeId, '- PushTokenRegistrar should trigger');
         
         await CampaignService.initializeCampaigns();
         await refreshTransactions();

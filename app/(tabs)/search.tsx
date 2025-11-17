@@ -4,6 +4,9 @@ import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import { useRouter } from "expo-router";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { trackAnalyticsEvent } from "@/services/analytics";
+import { shouldTrackStartOrder } from "./trackingDebounce";
 
 const INJECTED_CSS = `
   /* Hide vape content - more aggressive selectors */
@@ -103,22 +106,69 @@ const INJECT_SCRIPT = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
     }
 
-    // Watch for "Add to bag" button clicks and extract count from response
+    // Watch for checkout button clicks
     function watchAddToBag() {
-      // Intercept fetch requests to cart API
+      // Use boolean flag to prevent duplicates from event bubbling
+      let isTracking = false;
+
+      // Track clicks on checkout buttons
+      document.addEventListener('click', function(e) {
+        if (isTracking) return;
+
+        const target = e.target;
+        if (!target) return;
+
+        const text = (target.textContent || '').toLowerCase();
+        const href = (target.getAttribute('href') || '').toLowerCase();
+        const classList = target.className || '';
+
+        // Check if it's a checkout button
+        if (
+          text.includes('checkout') ||
+          text.includes('go to checkout') ||
+          text.includes('proceed to checkout') ||
+          href.includes('checkout') ||
+          classList.includes('checkout')
+        ) {
+          isTracking = true;
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
+          setTimeout(function() {
+            isTracking = false;
+          }, 1000);
+        }
+      }, true);
+
+      // Intercept XMLHttpRequest to update cart count
+      const originalXHROpen = XMLHttpRequest.prototype.open;
+      const originalXHRSend = XMLHttpRequest.prototype.send;
+
+      XMLHttpRequest.prototype.open = function(method, url) {
+        this._url = url;
+        return originalXHROpen.apply(this, arguments);
+      };
+
+      XMLHttpRequest.prototype.send = function() {
+        this.addEventListener('load', function() {
+          if (this.status >= 200 && this.status < 300) {
+            const url = this._url || '';
+            if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
+              setTimeout(sendCartCount, 500);
+            }
+          }
+        });
+        return originalXHRSend.apply(this, arguments);
+      };
+
+      // Also intercept fetch requests as backup
       const originalFetch = window.fetch;
       window.fetch = function(...args) {
         const promise = originalFetch.apply(this, args);
         const url = args[0]?.toString() || '';
 
-        // Check if it's a cart-related request
-        if (url.includes('/cart') || url.includes('add-to-cart')) {
+        if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
           promise.then(response => {
             if (response.ok) {
-              // After successful cart addition, force check badge
-              setTimeout(() => {
-                sendCartCount();
-              }, 500);
+              setTimeout(sendCartCount, 500);
             }
             return response;
           }).catch(() => {});
@@ -179,6 +229,7 @@ export default function SearchTab() {
   webviewRefs.search = ref;
   const router = useRouter();
   const { setCartCount } = useApp();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -229,6 +280,10 @@ export default function SearchTab() {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'CART_COUNT') {
               setCartCount(data.count);
+            } else if (data.type === 'START_ORDER') {
+              if (shouldTrackStartOrder()) {
+                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+              }
             }
           } catch (e) {}
         }}

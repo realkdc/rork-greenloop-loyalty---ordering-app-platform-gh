@@ -3,7 +3,10 @@ import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
+import { trackAnalyticsEvent } from "@/services/analytics";
+import { shouldTrackStartOrder } from "./trackingDebounce";
 
 const INJECTED_CSS = `
   /* Hide header, footer, and breadcrumbs */
@@ -86,7 +89,9 @@ const CART_LISTENER_SCRIPT = `
     setInterval(sendCartCount, 2000);
     sendCartCount(); // Send immediately
 
-    // Intercept "Continue Shopping" and "Browse Store" button clicks
+    // Intercept "Continue Shopping", "Browse Store", and "Checkout" button clicks
+    let isTracking = false;
+
     document.addEventListener('click', function(e) {
       const target = e.target;
       if (!target) return;
@@ -94,6 +99,24 @@ const CART_LISTENER_SCRIPT = `
       const text = (target.textContent || '').toLowerCase().trim();
       const href = (target.getAttribute('href') || '').toLowerCase();
       const className = (target.className || '').toLowerCase();
+
+      // Check if it's a checkout button
+      if (
+        text.includes('checkout') ||
+        text.includes('proceed to checkout') ||
+        text.includes('go to checkout') ||
+        href.includes('checkout') ||
+        className.includes('checkout')
+      ) {
+        if (isTracking) return;
+
+        console.log('[Cart] Checkout button clicked');
+        isTracking = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
+        setTimeout(function() {
+          isTracking = false;
+        }, 1000);
+      }
 
       // Check if it's a continue shopping or browse store button
       if (
@@ -118,6 +141,7 @@ export default function CartTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.cart = ref;
   const { setCartCount } = useApp();
+  const { user } = useAuth();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,6 +223,11 @@ export default function CartTab() {
             } else if (data.type === 'NAVIGATE_TO_BROWSE') {
               // Switch to browse tab
               router.push('/(tabs)/search');
+            } else if (data.type === 'START_ORDER') {
+              // Track checkout button click
+              if (shouldTrackStartOrder()) {
+                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+              }
             }
           } catch (e) {}
         }}

@@ -1,11 +1,13 @@
 import { Tabs } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
 import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
 import React from "react";
 import { debugLog } from "@/lib/logger";
 import { WEBVIEW_MINIMAL_MODE } from "@/constants/config";
+import { trackAnalyticsEvent } from "@/services/analytics";
 
 
 export const webviewRefs: Record<string, any> = {
@@ -45,6 +47,7 @@ const TAB_URLS: Record<string, string> = {
 function TabsLayout() {
   // Defensive: if provider hasn't mounted yet, default to 0 to avoid crashes during initial boot
   const app = useApp?.() as ReturnType<typeof useApp> | undefined;
+  const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
@@ -102,6 +105,10 @@ function TabsLayout() {
             listeners={{
               tabPress: () => {
                 debugLog(`[Tabs] 📱 Tab ${name} pressed`);
+
+                // Track tab view
+                trackAnalyticsEvent('VIEW_TAB', { tab: TAB_LABELS[name] as any }, user?.uid);
+
                 const ref = webviewRefs[name]?.current;
                 const targetUrl = TAB_URLS[name];
 
