@@ -6,7 +6,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
 import { trackAnalyticsEvent } from "@/services/analytics";
-import { shouldTrackStartOrder } from "./trackingDebounce";
+import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 
 const INJECTED_CSS = `
   /* Hide header, footer, and breadcrumbs */

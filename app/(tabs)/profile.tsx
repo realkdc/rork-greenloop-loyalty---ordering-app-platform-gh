@@ -1,8 +1,12 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking, Modal, TextInput } from "react-native";
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
+import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "@/contexts/AuthContext";
+import { submitAccountDeletionRequest } from "@/services/accountDeletion";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -99,6 +103,52 @@ const INJECT_SCRIPT = `
 
       return promise;
     };
+
+    // Track successful logins (detect auth cookies or logged-in state)
+    let hasTrackedLogin = false;
+
+    function checkLoginStatus() {
+      // Skip if already tracked
+      if (hasTrackedLogin) return;
+
+      // Check for auth cookies
+      const cookies = document.cookie;
+      const hasAuthCookie = /ec_auth_token|auth_token|login_token/.test(cookies);
+
+      // Check for logged-in indicators on the page
+      const accountElements = document.querySelectorAll('.account-dashboard, .customer-info, [data-user-name], .account-name, .user-profile, .logged-in');
+      const hasAccountElements = accountElements.length > 0;
+
+      // Check localStorage for auth tokens
+      const hasStorageAuth = localStorage.getItem('ec_auth_token') || localStorage.getItem('auth_token');
+
+      // If user is logged in, send signup event
+      if ((hasAuthCookie || hasStorageAuth) && hasAccountElements) {
+        console.log('[Auth] Login detected - sending signup event');
+        hasTrackedLogin = true;
+
+        try {
+          window.ReactNativeWebView?.postMessage(JSON.stringify({
+            type: 'USER_LOGGED_IN',
+            timestamp: Date.now()
+          }));
+        } catch(err) {
+          console.log('[Auth] Error posting USER_LOGGED_IN', err);
+        }
+      }
+    }
+
+    // Check login status periodically
+    setInterval(checkLoginStatus, 2000);
+
+    // Check on URL changes (magic link applied)
+    let lastUrl = window.location.href;
+    setInterval(() => {
+      if (window.location.href !== lastUrl) {
+        lastUrl = window.location.href;
+        setTimeout(checkLoginStatus, 1000);
+      }
+    }, 500);
   })();
   true;
 `;
@@ -106,11 +156,16 @@ const INJECT_SCRIPT = `
 export default function ProfileTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.profile = ref;
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteEmail, setDeleteEmail] = useState("");
   const hasAppliedLinkRef = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
 
   // Force hide spinner after 8 seconds if WebView is stuck
   useEffect(() => {
@@ -218,10 +273,91 @@ export default function ProfileTab() {
         setTimeout(() => {
           setShowPasteButton(true);
         }, 1000);
+      } else if (msg.type === 'USER_LOGGED_IN') {
+        console.log('✅ User logged in - tracking signup event');
+
+        // Send signup event to analytics
+        const trackSignup = async () => {
+          try {
+            const event = {
+              id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              type: 'signup',
+              userId: user?.id || `guest_${Date.now()}`,
+              metadata: {
+                method: 'magic_link',
+                source: 'webview',
+              },
+              timestamp: new Date().toISOString(),
+            };
+
+            console.log('📊 Sending signup event:', event);
+
+            // Send to /api/events endpoint
+            const response = await fetch('https://greenhaus-admin.vercel.app/api/events', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(event),
+            });
+
+            if (response.ok) {
+              console.log('✅ Signup event sent successfully');
+            } else {
+              console.warn('⚠️ Signup event failed:', response.status);
+            }
+          } catch (error) {
+            console.error('❌ Error sending signup event:', error);
+          }
+        };
+
+        trackSignup();
       }
     } catch (error) {
       console.error('Profile message error:', error);
     }
+  }, [user]);
+
+  const handleDeleteAccount = useCallback(() => {
+    setShowDeleteModal(true);
+    setDeleteEmail("");
+  }, []);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteEmail || deleteEmail.trim() === "") {
+      Alert.alert("Email Required", "Please enter your email address to confirm account deletion.");
+      return;
+    }
+
+    setIsSubmittingDelete(true);
+
+    try {
+      // Submit deletion request directly to Firestore
+      await submitAccountDeletionRequest(deleteEmail.trim());
+
+      // Close modal and show confirmation
+      setShowDeleteModal(false);
+      setDeleteEmail("");
+
+      // Show success message
+      Alert.alert(
+        "Request Submitted",
+        "Your account deletion request has been submitted. You will receive a confirmation email within 24-48 hours once your account has been deleted.",
+        [{ text: "OK" }]
+      );
+    } catch (error) {
+      console.error("[Account Deletion] Error:", error);
+      Alert.alert(
+        "Error",
+        "Failed to submit deletion request. Please try again or contact support at greenhauscc@gmail.com.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setIsSubmittingDelete(false);
+    }
+  }, [deleteEmail]);
+
+  const handleCancelDelete = useCallback(() => {
+    setShowDeleteModal(false);
+    setDeleteEmail("");
   }, []);
 
   return (
@@ -307,6 +443,81 @@ export default function ProfileTab() {
           </View>
         </View>
       )}
+
+      <TouchableOpacity
+        onPress={handleDeleteAccount}
+        activeOpacity={0.85}
+        style={[
+          styles.deleteButton,
+          {
+            top: Math.max(insets.top, 16) + 10,
+          },
+        ]}
+        accessibilityRole="button"
+        accessibilityLabel="Delete my account"
+      >
+        <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
+        <Text style={styles.deleteButtonLabel}>Delete</Text>
+      </TouchableOpacity>
+
+      <Modal
+        visible={showDeleteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelDelete}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.deleteModalContainer}>
+            <View style={styles.deleteModalHeader}>
+              <Ionicons name="warning" size={48} color="#DC2626" />
+              <Text style={styles.deleteModalTitle}>Delete Account Request</Text>
+              <Text style={styles.deleteModalSubtitle}>
+                Please enter your email address to submit a deletion request. You will receive a confirmation email within 24-48 hours once your account has been deleted.
+              </Text>
+            </View>
+
+            <View style={styles.deleteModalBody}>
+              <Text style={styles.inputLabel}>Email Address</Text>
+              <TextInput
+                style={styles.emailInput}
+                placeholder="Enter your email"
+                placeholderTextColor="#9CA3AF"
+                value={deleteEmail}
+                onChangeText={setDeleteEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <View style={styles.deleteModalFooter}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={handleCancelDelete}
+                activeOpacity={0.7}
+                disabled={isSubmittingDelete}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.confirmDeleteButton,
+                  isSubmittingDelete && styles.confirmDeleteButtonDisabled
+                ]}
+                onPress={handleConfirmDelete}
+                activeOpacity={0.7}
+                disabled={isSubmittingDelete}
+              >
+                {isSubmittingDelete ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.confirmDeleteButtonText}>Confirm Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -402,5 +613,113 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 22,
     fontWeight: '300',
+  },
+  deleteButton: {
+    position: "absolute",
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#DC2626",
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  deleteButtonLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 20, 13, 0.75)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  deleteModalContainer: {
+    width: "90%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    gap: 20,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  deleteModalHeader: {
+    alignItems: "center",
+    gap: 12,
+  },
+  deleteModalTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#DC2626",
+    textAlign: "center",
+  },
+  deleteModalSubtitle: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  deleteModalBody: {
+    gap: 8,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 4,
+  },
+  emailInput: {
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#111827",
+    backgroundColor: "#F9FAFB",
+  },
+  deleteModalFooter: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 8,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+  },
+  cancelButtonText: {
+    color: "#374151",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmDeleteButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+  },
+  confirmDeleteButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  confirmDeleteButtonDisabled: {
+    opacity: 0.6,
   },
 });

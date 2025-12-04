@@ -2,7 +2,7 @@
   "expo": {
     "name": "GreenHaus",
     "slug": "greenloop-loyalty-ordering-platform",
-    "version": "1.0.4",
+    "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "greenhaus",
@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.greenhauscc.customer",
-      "buildNumber": "32",
+      "buildNumber": "38",
       "associatedDomains": [
         "applinks:greenhaus-site.vercel.app"
       ],

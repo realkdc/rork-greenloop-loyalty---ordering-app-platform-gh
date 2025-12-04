@@ -10,40 +10,10 @@ import { getPromos, type PromoRecord } from "@/src/lib/promos";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackAnalyticsEvent } from "@/services/analytics";
-import { shouldTrackStartOrder } from "./trackingDebounce";
+import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 
-// Minimal CSS to hide vape content and clean up UI
 const INJECTED_CSS = `
-  /* Hide vape content - more aggressive selectors */
-  #ins-tile__category-item-GOrgE,
-  a[aria-label*="TOASTED TUESDAY"],
-  a[href*="toasted"][href*="tuesday"],
-  .grid-category--id-180876996,
-  a[href*="disposables"],
-  a[href*="cartridges"],
-  a[href*="Disposables"],
-  a[href*="Cartridges"],
-  [href*="/disposables"],
-  [href*="/cartridges"],
-  div:has(> a[href*="disposables"]),
-  div:has(> a[href*="cartridges"]),
-  /* Hide by text content */
-  a:has(h2:contains("Disposables")),
-  a:has(h2:contains("Cartridges")),
-  /* Category tiles */
-  .ec-grid__category-item:has(a[href*="disposables"]),
-  .ec-grid__category-item:has(a[href*="cartridges"]),
-  .grid-category:has(a[href*="disposables"]),
-  .grid-category:has(a[href*="cartridges"]) {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-  }
-
-  /* Hide header and footer */
+  /* Hide header and footer only */
   header, .ins-header, .site-header,
   footer, .site-footer, .ec-footer,
   nav, .navigation, .site-nav,
@@ -53,6 +23,25 @@ const INJECTED_CSS = `
 
   /* Add padding where header was */
   body { padding-top: 20px !important; }
+
+  /* Hide Toasted Tuesday vape promo tile */
+  a[aria-label*="TOASTED TUESDAY"],
+  a[aria-label*="Toasted Tuesday"],
+  a[aria-label*="toasted tuesday"],
+  a[href*="toasted"][href*="tuesday"],
+  a[href*="Toasted"][href*="Tuesday"],
+  div:has(> a[aria-label*="TOASTED TUESDAY"]),
+  div:has(> a[aria-label*="Toasted Tuesday"]),
+  div:has(> a[href*="toasted"][href*="tuesday"]) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 `;
 
 const INJECT_SCRIPT = `
@@ -60,40 +49,6 @@ const INJECT_SCRIPT = `
     const style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
-
-    // JavaScript-based hiding for vape content
-    function hideVapeContent() {
-      // Find all links and check their href and text content
-      document.querySelectorAll('a').forEach(link => {
-        const href = link.getAttribute('href') || '';
-        const text = link.textContent || '';
-        const ariaLabel = link.getAttribute('aria-label') || '';
-
-        // Check if it's vape-related
-        if (
-          href.includes('disposable') ||
-          href.includes('cartridge') ||
-          href.includes('toasted') ||
-          text.toLowerCase().includes('disposable') ||
-          text.toLowerCase().includes('cartridge') ||
-          text.toLowerCase().includes('toasted tuesday') ||
-          ariaLabel.toLowerCase().includes('toasted tuesday')
-        ) {
-          // Hide the link and its parent container
-          link.style.display = 'none';
-          if (link.parentElement) {
-            link.parentElement.style.display = 'none';
-          }
-        }
-      });
-
-      // Also hide headers, footers, and breadcrumbs
-      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
-        document.querySelectorAll(selector).forEach(el => {
-          el.style.display = 'none';
-        });
-      });
-    }
 
     // Send cart count to React Native
     function sendCartCount() {
@@ -212,7 +167,6 @@ const INJECT_SCRIPT = `
     }
 
     // Run immediately and on intervals
-    hideVapeContent();
     sendCartCount();
     watchAddToBag();
 
@@ -227,13 +181,11 @@ const INJECT_SCRIPT = `
     }, 500);
 
     setInterval(() => {
-      hideVapeContent();
       sendCartCount();
     }, 2000);
 
     // Watch for DOM changes
     const observer = new MutationObserver(() => {
-      hideVapeContent();
       sendCartCount();
     });
     observer.observe(document.body, { childList: true, subtree: true });

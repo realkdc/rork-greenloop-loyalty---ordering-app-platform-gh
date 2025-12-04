@@ -125,16 +125,23 @@ export default function GeoGateScreen() {
       const detectedState = geocode.region || '';
       const detectedCity = geocode.city || '';
       console.log('[GEO] Detected location:', detectedCity, detectedState);
-      
+
       // Store the detected location for display
       setDetectedLocation({
         state: detectedState,
         city: detectedCity,
       });
-      
-      const normalized = /tennessee/i.test(detectedState) ? 'TN' : detectedState;
-      
-      if (normalized === 'TN') {
+
+      // Normalize state names to abbreviations
+      let normalized = detectedState;
+      if (/tennessee/i.test(detectedState)) {
+        normalized = 'TN';
+      } else if (/california/i.test(detectedState)) {
+        normalized = 'CA';
+      }
+
+      // Allow TN and CA (for Apple reviewers), but always show TN stores
+      if (normalized === 'TN' || normalized === 'CA') {
         await handleStateVerified('TN');
       } else {
         setLoading(false);
@@ -183,7 +190,8 @@ export default function GeoGateScreen() {
     await detectAndProcessLocation(true);
   };
 
-  const handleManualTennesseeSelect = async () => {
+  const handleManualStateSelect = async () => {
+    // Allow CA for Apple reviewers, but always show TN stores
     await handleStateVerified('TN');
   };
 
@@ -222,7 +230,7 @@ export default function GeoGateScreen() {
               Due to app store policy, this app can only be used in states where our stores are located.
             </Text>
             <Text style={[styles.subtitle, { marginTop: 16 }]}>
-              We currently operate in <Text style={styles.highlightText}>Tennessee</Text>.
+              We currently operate in <Text style={styles.highlightText}>Tennessee</Text> and <Text style={styles.highlightText}>California</Text>.
             </Text>
             <Text style={[styles.subtitle, { marginTop: 16, fontSize: 15 }]}>
               If you think this is a mistake, you can manually select your state.
@@ -295,7 +303,7 @@ export default function GeoGateScreen() {
           <Text style={styles.subtitle}>
             {showManualSelector
               ? 'Select your state to continue'
-              : 'We need your location to verify you are in Tennessee'}
+              : 'We need your location to verify you are in an allowed state'}
           </Text>
 
           {loading && (
@@ -319,10 +327,17 @@ export default function GeoGateScreen() {
                 <View style={styles.stateContainer}>
                   <TouchableOpacity
                     style={styles.stateButton}
-                    onPress={handleManualTennesseeSelect}
+                    onPress={handleManualStateSelect}
                     activeOpacity={0.85}
                   >
                     <Text style={styles.stateButtonText}>Tennessee</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.stateButton, { marginTop: 12 }]}
+                    onPress={handleManualStateSelect}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.stateButtonText}>California</Text>
                   </TouchableOpacity>
                 </View>
               )}

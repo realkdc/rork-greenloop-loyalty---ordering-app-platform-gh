@@ -37,7 +37,7 @@ export const APP_CONFIG = {
   apiBaseUrl: process.env.EXPO_PUBLIC_API_URL || 'https://greenhaus-admin.vercel.app/api',
   // Auto-login for App Store review (magic links don't work for reviewers)
   // This bypasses magic link auth but provides full app functionality
-  DEMO_MODE: true, // MUST be true - reviewers can't receive magic links
+  DEMO_MODE: false, // Set to true for App Store review, false for production
 };
 
 // Review build flags for Apple App Store submission

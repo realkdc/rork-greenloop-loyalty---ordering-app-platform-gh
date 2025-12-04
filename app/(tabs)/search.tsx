@@ -6,39 +6,10 @@ import { useRouter } from "expo-router";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { trackAnalyticsEvent } from "@/services/analytics";
-import { shouldTrackStartOrder } from "./trackingDebounce";
+import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 
 const INJECTED_CSS = `
-  /* Hide vape content - more aggressive selectors */
-  #ins-tile__category-item-GOrgE,
-  a[aria-label*="TOASTED TUESDAY"],
-  a[href*="toasted"][href*="tuesday"],
-  .grid-category--id-180876996,
-  a[href*="disposables"],
-  a[href*="cartridges"],
-  a[href*="Disposables"],
-  a[href*="Cartridges"],
-  [href*="/disposables"],
-  [href*="/cartridges"],
-  div:has(> a[href*="disposables"]),
-  div:has(> a[href*="cartridges"]),
-  /* Hide by text content */
-  a:has(h2:contains("Disposables")),
-  a:has(h2:contains("Cartridges")),
-  /* Category tiles */
-  .ec-grid__category-item:has(a[href*="disposables"]),
-  .ec-grid__category-item:has(a[href*="cartridges"]),
-  .grid-category:has(a[href*="disposables"]),
-  .grid-category:has(a[href*="cartridges"]) {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-  }
-
-  /* Hide header, footer, and breadcrumbs */
+  /* Hide header, footer, and breadcrumbs only */
   header, .ins-header, .site-header,
   footer, .site-footer, .ec-footer,
   nav, .navigation, .site-nav,
@@ -49,6 +20,43 @@ const INJECTED_CSS = `
   body {
     padding-top: 20px !important;
   }
+
+  /* Hide vape categories and products */
+  a[href*="/disposables"],
+  a[href*="/Disposables"],
+  a[href*="/cartridges"],
+  a[href*="/Cartridges"],
+  a[href*="disposable"],
+  a[href*="Disposable"],
+  a[href*="cartridge"],
+  a[href*="Cartridge"],
+  a[href*="veil"],
+  a[href*="Veil"],
+  a[href*="VEIL"],
+  a[href*="bar-pro"],
+  a[href*="Bar-Pro"],
+  a[aria-label*="Disposable"],
+  a[aria-label*="Cartridge"],
+  a[aria-label*="Veil"],
+  div:has(> a[href*="disposable"]),
+  div:has(> a[href*="Disposable"]),
+  div:has(> a[href*="cartridge"]),
+  div:has(> a[href*="Cartridge"]),
+  div:has(> a[href*="veil"]),
+  div:has(> a[href*="Veil"]),
+  .ec-grid__category-item:has(a[href*="disposable"]),
+  .ec-grid__category-item:has(a[href*="Disposable"]),
+  .ec-grid__category-item:has(a[href*="cartridge"]),
+  .ec-grid__category-item:has(a[href*="Cartridge"]) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
 `;
 
 const INJECT_SCRIPT = `
@@ -57,169 +65,19 @@ const INJECT_SCRIPT = `
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // JavaScript-based hiding for vape content
-    function hideVapeContent() {
-      // Find all links and check their href and text content
-      document.querySelectorAll('a').forEach(link => {
-        const href = link.getAttribute('href') || '';
-        const text = link.textContent || '';
-        const ariaLabel = link.getAttribute('aria-label') || '';
-
-        // Check if it's vape-related
-        if (
-          href.includes('disposable') ||
-          href.includes('cartridge') ||
-          href.includes('toasted') ||
-          text.toLowerCase().includes('disposable') ||
-          text.toLowerCase().includes('cartridge') ||
-          text.toLowerCase().includes('toasted tuesday') ||
-          ariaLabel.toLowerCase().includes('toasted tuesday')
-        ) {
-          // Hide the link and its parent container
-          link.style.display = 'none';
-          if (link.parentElement) {
-            link.parentElement.style.display = 'none';
-          }
-        }
-      });
-
-      // Also hide headers, footers, and breadcrumbs
-      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
-        document.querySelectorAll(selector).forEach(el => {
-          el.style.display = 'none';
-        });
-      });
-    }
-
     // Send cart count to React Native
     function sendCartCount() {
       let count = 0;
-
-      // Try cart badge selectors (works even when hidden with CSS)
       const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
       if (badge && badge.textContent) {
-        const badgeCount = parseInt(badge.textContent.trim()) || 0;
-        count = badgeCount;
+        count = parseInt(badge.textContent.trim()) || 0;
       }
-
-      // Always send the count
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
     }
 
-    // Watch for checkout button clicks
-    function watchAddToBag() {
-      // Use boolean flag to prevent duplicates from event bubbling
-      let isTracking = false;
-
-      // Track clicks on checkout buttons
-      document.addEventListener('click', function(e) {
-        if (isTracking) return;
-
-        const target = e.target;
-        if (!target) return;
-
-        const text = (target.textContent || '').toLowerCase();
-        const href = (target.getAttribute('href') || '').toLowerCase();
-        const classList = target.className || '';
-
-        // Check if it's a checkout button
-        if (
-          text.includes('checkout') ||
-          text.includes('go to checkout') ||
-          text.includes('proceed to checkout') ||
-          href.includes('checkout') ||
-          classList.includes('checkout')
-        ) {
-          isTracking = true;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
-          setTimeout(function() {
-            isTracking = false;
-          }, 1000);
-        }
-      }, true);
-
-      // Intercept XMLHttpRequest to update cart count
-      const originalXHROpen = XMLHttpRequest.prototype.open;
-      const originalXHRSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalXHROpen.apply(this, arguments);
-      };
-
-      XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-          if (this.status >= 200 && this.status < 300) {
-            const url = this._url || '';
-            if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-              setTimeout(sendCartCount, 500);
-            }
-          }
-        });
-        return originalXHRSend.apply(this, arguments);
-      };
-
-      // Also intercept fetch requests as backup
-      const originalFetch = window.fetch;
-      window.fetch = function(...args) {
-        const promise = originalFetch.apply(this, args);
-        const url = args[0]?.toString() || '';
-
-        if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-          promise.then(response => {
-            if (response.ok) {
-              setTimeout(sendCartCount, 500);
-            }
-            return response;
-          }).catch(() => {});
-        }
-
-        return promise;
-      };
-
-      // Also watch for DOM mutations that might indicate cart update
-      const cartObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          // Check if badge was updated
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === 1) {
-              const badge = node.querySelector?.('.ec-cart-widget__count, .ec-minicart__count');
-              if (badge) {
-                sendCartCount();
-              }
-            }
-          });
-        });
-      });
-
-      // Observe the entire document for cart badge changes
-      const headerArea = document.querySelector('header') || document.body;
-      if (headerArea) {
-        cartObserver.observe(headerArea, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['class']
-        });
-      }
-    }
-
-    // Run immediately and on DOM changes
-    hideVapeContent();
+    // Send immediately and every 3 seconds
     sendCartCount();
-    watchAddToBag();
-    setInterval(() => {
-      hideVapeContent();
-      sendCartCount();
-    }, 2000);
-
-    // Watch for DOM changes
-    const observer = new MutationObserver(() => {
-      hideVapeContent();
-      sendCartCount();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    setInterval(sendCartCount, 3000);
   })();
   true;
 `;
@@ -235,9 +93,16 @@ export default function SearchTab() {
 
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
+    console.log('[Search] Navigation state changed:', {
+      url,
+      loading: navState.loading,
+      canGoBack: navState.canGoBack,
+      canGoForward: navState.canGoForward,
+    });
 
     // If navigated to cart page, switch to cart tab and reload it
     if (url.includes('/cart') || url.includes('/products/cart')) {
+      console.log('[Search] Detected cart navigation - switching to cart tab');
       // Reload cart tab to show updated items
       const cartRef = webviewRefs.cart?.current;
       if (cartRef) {
@@ -268,11 +133,30 @@ export default function SearchTab() {
         domStorageEnabled
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          console.log('[Search] Load started');
+          setIsLoading(true);
+        }}
         onLoadEnd={() => {
+          console.log('[Search] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           ref.current?.injectJavaScript(INJECT_SCRIPT);
+        }}
+        onLoadProgress={({ nativeEvent }) => {
+          console.log('[Search] Load progress:', nativeEvent.progress);
+        }}
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Search] WebView error:', nativeEvent);
+          setIsLoading(false);
+          setRefreshing(false);
+        }}
+        onHttpError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Search] HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+          setIsLoading(false);
+          setRefreshing(false);
         }}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {

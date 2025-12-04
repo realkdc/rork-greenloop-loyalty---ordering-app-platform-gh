@@ -177,11 +177,15 @@ function PushTokenRegistrar() {
     // Track initial app open
     trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
 
-    // Track when app returns to foreground
+    // Track when app returns to foreground (not initial open)
+    let previousState = AppState.currentState;
+
     const subscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
+      // Only fire if transitioning from background/inactive to active
+      if (previousState !== 'active' && nextAppState === 'active') {
         trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
       }
+      previousState = nextAppState;
     });
 
     return () => subscription.remove();
