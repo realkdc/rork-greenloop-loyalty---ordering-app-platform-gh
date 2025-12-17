@@ -2,6 +2,7 @@
   "name": "expo-app",
   "main": "expo-router/entry",
   "version": "1.0.0",
+  "packageManager": "npm@10.8.2",
   "scripts": {
     "start": "bunx rork start -p jo14xc6tgtcr7szg3zr3z --tunnel",
     "start-web": "bunx rork start -p jo14xc6tgtcr7szg3zr3z --web --tunnel",
@@ -72,7 +73,7 @@
     "@babel/core": "^7.25.2",
     "@expo/ngrok": "^4.1.0",
     "@types/react": "~19.0.10",
-    "eas-cli": "^16.24.1",
+    "eas-cli": "^16.28.0",
     "eslint": "9.31.0",
     "eslint-config-expo": "9.2.0",
     "typescript": "~5.8.3"

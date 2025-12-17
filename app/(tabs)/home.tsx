@@ -204,6 +204,33 @@ export default function HomeTab() {
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [showRetry, setShowRetry] = useState(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Force hide spinner after 10 seconds if WebView is stuck
+  useEffect(() => {
+    if (isLoading && !hasError) {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.log('[Home] Loading timeout - showing retry button');
+        setIsLoading(false);
+        setRefreshing(false);
+        setShowRetry(true);
+      }, 10000);
+    } else {
+      setShowRetry(false);
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [isLoading, hasError]);
 
   // Promo modal state
   const [promos, setPromos] = useState<PromoRecord[]>([]);
@@ -375,11 +402,54 @@ export default function HomeTab() {
     }
   };
 
+  const handleRetry = () => {
+    console.log('[Home] Retry button pressed - reloading WebView');
+    setShowRetry(false);
+    setHasError(false);
+    setIsLoading(true);
+    ref.current?.reload();
+  };
+
   return (
     <View style={styles.container}>
-      {isLoading && (
+      {hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorTitle}>Unable to Load Store</Text>
+          <Text style={styles.errorText}>
+            The emulator cannot connect to the internet.{'\n'}
+            Try the other tabs to explore the app!
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setHasError(false);
+              setIsLoading(true);
+              ref.current?.reload();
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {isLoading && !hasError && !showRetry && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#5DB075" />
+          <Text style={styles.loadingText}>Loading store...</Text>
+        </View>
+      )}
+      {showRetry && !hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorTitle}>Page Taking Too Long</Text>
+          <Text style={styles.errorText}>
+            The store is taking longer than expected to load.{'\n'}
+            Check your connection and try again.
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={handleRetry}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
       <WebView
@@ -395,12 +465,29 @@ export default function HomeTab() {
         javaScriptEnabled
         domStorageEnabled
         pullToRefreshEnabled={true}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        cacheEnabled={true}
+        cacheMode="LOAD_DEFAULT"
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          setIsLoading(true);
+          setShowRetry(false);
+        }}
         onLoadEnd={() => {
           setIsLoading(false);
           setRefreshing(false);
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
+        }}
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.warn('WebView error:', nativeEvent);
+          setHasError(true);
+          setIsLoading(false);
         }}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {
@@ -542,6 +629,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  errorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 1000,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E4D3A',
+    marginBottom: 12,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  retryButton: {
+    backgroundColor: '#1E4D3A',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   fab: {
     position: "absolute",

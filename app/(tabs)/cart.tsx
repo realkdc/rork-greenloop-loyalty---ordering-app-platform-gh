@@ -188,6 +188,10 @@ export default function CartTab() {
         javaScriptEnabled
         domStorageEnabled
         pullToRefreshEnabled={true}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        cacheEnabled={true}
+        cacheMode="LOAD_DEFAULT"
         injectedJavaScript={CART_LISTENER_SCRIPT}
         onLoadStart={() => {
           console.log('[Cart] Load started');

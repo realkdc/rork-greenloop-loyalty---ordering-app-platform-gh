@@ -30,9 +30,26 @@ if (__DEV__) {
   }
 }
 
-const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
-const db = getFirestore(app);
+// Safely initialize Firebase with error handling for Android
+let app;
+let db;
 
-console.log('[Firebase] ✅ App initialized successfully');
+try {
+  app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  db = getFirestore(app);
+  console.log('[Firebase] ✅ App initialized successfully');
+} catch (error) {
+  console.error('[Firebase] ❌ Failed to initialize:', error);
+  // Create a minimal fallback to prevent crashes
+  // In production, the app will continue to work without Firebase features
+  if (getApps().length > 0) {
+    app = getApp();
+    try {
+      db = getFirestore(app);
+    } catch (e) {
+      console.error('[Firebase] ❌ Failed to get Firestore:', e);
+    }
+  }
+}
 
 export { app, db };
