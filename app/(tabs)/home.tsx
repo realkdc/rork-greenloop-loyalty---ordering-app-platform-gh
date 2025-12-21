@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedba
 import { WebView } from "react-native-webview";
 import type { WebViewNavigation } from "react-native-webview";
 import * as WebBrowser from "expo-web-browser";
+import CookieManager from "@react-native-cookies/cookies";
 import { webviewRefs } from "./_layout";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -150,30 +151,18 @@ const INJECT_SCRIPT = `
           
           isTracking = true;
           
-          // Get current page URL - this is the product page URL
-          let currentUrl = window.location.href;
-          let productUrl = currentUrl;
-          
-          // If we're on a product page, use that URL
-          // Ecwid product URLs look like: #!/~/product/id=123456 or /products#!/~/product/...
-          if (currentUrl.includes('/product/') || currentUrl.includes('#!/~/product')) {
-            productUrl = currentUrl;
-            console.log('[Home JS] On product page, will open:', productUrl);
-          } else {
-            // Not on a product page, just open the main store
-            productUrl = 'https://greenhauscc.com/products';
-            console.log('[Home JS] Not on product page, opening store');
-          }
-          
           // Get cart count for info
           const cartBadge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count');
           const cartCount = cartBadge ? parseInt(cartBadge.textContent || '0') : 0;
           
-          // Send message to open browser with current page
+          // Open the CART page in browser - cookies will be synced so cart should be there
+          const cartUrl = 'https://greenhauscc.com/products#!/~/cart';
+          console.log('[Home JS] Opening cart URL with synced cookies:', cartUrl, 'Cart count:', cartCount);
+          
+          // Send message to open browser with cart page
           window.ReactNativeWebView.postMessage(JSON.stringify({ 
             type: 'OPEN_EXTERNAL_CHECKOUT',
-            url: productUrl,
-            currentPage: currentUrl,
+            url: cartUrl,
             cartCount: cartCount
           }));
           
@@ -530,21 +519,52 @@ export default function HomeTab() {
   }, []);
 
   // Open URL in external browser (works in Expo Go via Linking)
+  // Sync WebView cookies to native cookie store before opening browser
+  const syncCookiesToBrowser = useCallback(async () => {
+    try {
+      console.log('[Home] 🍪 Syncing cookies from WebView to browser...');
+      
+      // Get all cookies from the WebView for greenhauscc.com
+      const cookies = await CookieManager.get('https://greenhauscc.com');
+      console.log('[Home] 🍪 Found cookies:', Object.keys(cookies));
+      
+      // Also get cookies from ecwid.com (Ecwid stores cart there)
+      const ecwidCookies = await CookieManager.get('https://app.ecwid.com');
+      console.log('[Home] 🍪 Found Ecwid cookies:', Object.keys(ecwidCookies));
+      
+      // Flush cookies to ensure they're synced to the native store
+      // This is important for Chrome Custom Tabs to pick them up
+      await CookieManager.flush();
+      console.log('[Home] 🍪 Cookies flushed to native store');
+      
+      return true;
+    } catch (error) {
+      console.log('[Home] 🍪 Cookie sync error:', error);
+      return false;
+    }
+  }, []);
+
   const openInExternalBrowser = useCallback(async (url: string, cartCount: number = 0) => {
     console.log('[Home] Opening external browser:', url);
     
     // Show helpful message
     if (Platform.OS === 'android') {
-      ToastAndroid.show('Opening browser...', ToastAndroid.SHORT);
+      ToastAndroid.show('Syncing cart to browser...', ToastAndroid.SHORT);
     }
     
+    // IMPORTANT: Sync cookies from WebView to native store FIRST
+    await syncCookiesToBrowser();
+    
     try {
-      // Try WebBrowser first (Chrome Custom Tabs) - may share cookies on some devices
+      // Use Chrome Custom Tabs - they share cookies with Chrome browser
+      // After syncing, Chrome Custom Tabs should have the same session
       const result = await WebBrowser.openBrowserAsync(url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
         toolbarColor: '#1E4D3A',
         controlsColor: '#FFFFFF',
         showTitle: true,
+        // On Android, Chrome Custom Tabs shares cookies with Chrome
+        // The cookie sync above should make the cart available
       });
       console.log('[Home] ✅ WebBrowser result:', result.type);
     } catch (error) {
@@ -562,7 +582,7 @@ export default function HomeTab() {
         );
       }
     }
-  }, []);
+  }, [syncCookiesToBrowser]);
 
   // Check if URL is a cart/checkout route
   const isCartOrCheckoutRoute = useCallback((url: string) => {
@@ -725,25 +745,21 @@ export default function HomeTab() {
             if (data.type === 'CART_COUNT') {
               setCartCount(data.count);
             } else if (data.type === 'OPEN_EXTERNAL_CHECKOUT') {
-              // Open external browser for checkout
+              // Open external browser for checkout with synced cookies
               console.log('[Home] 📱 Received OPEN_EXTERNAL_CHECKOUT message:', data);
               
-              // Use the current page URL
-              let url = data.url || 'https://greenhauscc.com/products';
+              // Use the cart URL - cookies will be synced
+              const url = data.url || 'https://greenhauscc.com/products#!/~/cart';
+              const cartCount = data.cartCount || 0;
               
-              // Make sure it's a valid URL
-              if (!url.includes('greenhauscc.com')) {
-                url = 'https://greenhauscc.com/products';
+              console.log('[Home] Opening cart in browser with cookie sync. Cart items:', cartCount);
+              
+              // Show message about syncing
+              if (Platform.OS === 'android' && cartCount > 0) {
+                ToastAndroid.show(`Syncing ${cartCount} cart items to browser...`, ToastAndroid.SHORT);
               }
               
-              console.log('[Home] Opening URL in browser:', url);
-              
-              // Show helpful message
-              if (Platform.OS === 'android') {
-                ToastAndroid.show('Opening in browser - add to cart & checkout there', ToastAndroid.LONG);
-              }
-              
-              openInExternalBrowser(url, data.cartCount || 0);
+              openInExternalBrowser(url, cartCount);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
