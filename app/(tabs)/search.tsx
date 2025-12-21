@@ -155,23 +155,61 @@ const INJECT_SCRIPT = `
         
         isTracking = true;
         
-        // Get cart count for info
-        const cartBadge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count');
-        const cartCount = cartBadge ? parseInt(cartBadge.textContent || '0') : 0;
+        // Get the current URL - if we're on a product page, we'll open that
+        let currentUrl = window.location.href;
+        let productId = null;
+        let productUrl = null;
         
-        // Open the CART page in browser - cookies will be synced so cart should be there
-        const cartUrl = 'https://greenhauscc.com/products#!/~/cart';
-        console.log('[Browse JS] Opening cart URL with synced cookies:', cartUrl, 'Cart count:', cartCount);
+        // Try to extract product ID from current URL
+        const hashMatch = currentUrl.match(/product\/id=(\d+)/i);
+        const pathMatch = currentUrl.match(/-p(\d+)$/i);
         
-        window.ReactNativeWebView.postMessage(JSON.stringify({ 
-          type: 'OPEN_EXTERNAL_CHECKOUT',
-          url: cartUrl,
-          cartCount: cartCount
-        }));
+        if (hashMatch) {
+          productId = hashMatch[1];
+        } else if (pathMatch) {
+          productId = pathMatch[1];
+        }
+        
+        // Try to get current product from Ecwid API
+        if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
+          window.Ecwid.Cart.get(function(cart) {
+            let cartCount = cart && cart.items ? cart.items.length : 0;
+            let lastItem = cart && cart.items && cart.items.length > 0 ? cart.items[cart.items.length - 1] : null;
+            
+            if (productId) {
+              productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
+            } else if (lastItem && lastItem.product && lastItem.product.id) {
+              productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + lastItem.product.id;
+            } else {
+              productUrl = 'https://greenhauscc.com/products';
+            }
+            
+            window.ReactNativeWebView.postMessage(JSON.stringify({ 
+              type: 'OPEN_EXTERNAL_CHECKOUT',
+              url: productUrl,
+              productId: productId || (lastItem ? lastItem.product.id : null),
+              productName: lastItem ? lastItem.product.name : null,
+              cartCount: cartCount
+            }));
+          });
+        } else {
+          if (productId) {
+            productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
+          } else {
+            productUrl = 'https://greenhauscc.com/products';
+          }
+          
+          window.ReactNativeWebView.postMessage(JSON.stringify({ 
+            type: 'OPEN_EXTERNAL_CHECKOUT',
+            url: productUrl,
+            productId: productId,
+            cartCount: 0
+          }));
+        }
 
         setTimeout(function() {
           isTracking = false;
-        }, 2000);
+        }, 3000);
         
         return false;
       }
@@ -473,14 +511,20 @@ export default function SearchTab() {
             } else if (data.type === 'OPEN_EXTERNAL_CHECKOUT') {
               console.log('[Browse] 📱 Received OPEN_EXTERNAL_CHECKOUT message:', data);
               
-              // Use cart URL - cookies will be synced
-              const url = data.url || 'https://greenhauscc.com/products#!/~/cart';
+              const url = data.url || 'https://greenhauscc.com/products';
+              const productName = data.productName;
               const cartCount = data.cartCount || 0;
               
-              console.log('[Browse] Opening cart in browser with cookie sync. Cart items:', cartCount);
+              console.log('[Browse] Opening URL:', url);
               
-              if (Platform.OS === 'android' && cartCount > 0) {
-                ToastAndroid.show(`Syncing ${cartCount} cart items to browser...`, ToastAndroid.SHORT);
+              if (Platform.OS === 'android') {
+                if (productName) {
+                  ToastAndroid.show(`Opening "${productName}" - add to cart in browser`, ToastAndroid.LONG);
+                } else if (cartCount > 0) {
+                  ToastAndroid.show(`Opening store - add items to cart in browser`, ToastAndroid.LONG);
+                } else {
+                  ToastAndroid.show('Opening store...', ToastAndroid.SHORT);
+                }
               }
               
               openInExternalBrowser(url, cartCount);
