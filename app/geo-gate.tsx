@@ -8,7 +8,7 @@ import { STORES, type StoreInfo } from '@/config/greenhaus';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '@/contexts/AppContext';
 
-type ScreenState = 'location' | 'restricted' | 'stores';
+type ScreenState = 'disclosure' | 'location' | 'restricted' | 'stores';
 
 type DetectedLocation = {
   state: string;
@@ -20,7 +20,7 @@ export default function GeoGateScreen() {
   const { setSelectedStoreId, setLastKnownState, setOnboardingCompleted } = useApp();
   const [loading, setLoading] = useState(false);
   const [showManualSelector, setShowManualSelector] = useState(false);
-  const [screenState, setScreenState] = useState<ScreenState>('location');
+  const [screenState, setScreenState] = useState<ScreenState>('disclosure');
   const [eligibleStores, setEligibleStores] = useState<StoreInfo[]>([]);
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
@@ -197,7 +197,7 @@ export default function GeoGateScreen() {
 
   const calculateDistance = (storeLat: number, storeLng: number): string => {
     if (!userCoords) return '';
-    
+
     const R = 3959;
     const dLat = ((storeLat - userCoords.lat) * Math.PI) / 180;
     const dLon = ((storeLng - userCoords.lng) * Math.PI) / 180;
@@ -211,6 +211,57 @@ export default function GeoGateScreen() {
     const distance = R * c;
     return `${distance.toFixed(1)} mi`;
   };
+
+  // Prominent Disclosure Screen - Required by Google Play Policy
+  if (screenState === 'disclosure') {
+    return (
+      <View style={styles.wrapper}>
+        <SafeAreaView style={styles.container}>
+          <ScrollView contentContainerStyle={styles.content}>
+            <View style={styles.iconContainer}>
+              <MapPin size={56} color="#1E4D3A" strokeWidth={2.5} />
+            </View>
+
+            <Text style={styles.title}>Location Access</Text>
+            <Text style={styles.subtitle}>
+              GreenHaus needs to access your location to verify that you are in a state where we are licensed to operate.
+            </Text>
+
+            <View style={styles.disclosureBox}>
+              <Text style={styles.disclosureTitle}>How we use your location:</Text>
+              <Text style={styles.disclosureItem}>• Verify you're in a legal pickup or delivery area</Text>
+              <Text style={styles.disclosureItem}>• Show you nearby GreenHaus store locations</Text>
+              <Text style={styles.disclosureItem}>• Ensure compliance with state regulations</Text>
+              <Text style={styles.disclosureNote}>
+                Your location is only accessed when you use the app and is never shared with third parties.
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.button}
+              onPress={() => setScreenState('location')}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.buttonText}>Continue</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() => {
+                setScreenState('location');
+                setShowManualSelector(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.linkText}>
+                Skip location access
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   if (screenState === 'restricted') {
     const locationText = detectedLocation
@@ -504,5 +555,35 @@ const styles = StyleSheet.create({
   highlightText: {
     fontWeight: '700' as const,
     color: '#1E4D3A',
+  },
+  disclosureBox: {
+    width: '100%',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  disclosureTitle: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: '#111827',
+    marginBottom: 12,
+  },
+  disclosureItem: {
+    fontSize: 15,
+    fontWeight: '400' as const,
+    color: '#374151',
+    lineHeight: 24,
+    marginBottom: 8,
+  },
+  disclosureNote: {
+    fontSize: 13,
+    fontWeight: '400' as const,
+    color: '#6B7280',
+    lineHeight: 20,
+    marginTop: 8,
+    fontStyle: 'italic' as const,
   },
 });

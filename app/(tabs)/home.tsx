@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Platform, Linking, ToastAndroid, Alert } from "react-native";
 import { WebView } from "react-native-webview";
+import type { WebViewNavigation } from "react-native-webview";
+import * as WebBrowser from "expo-web-browser";
 import { webviewRefs } from "./_layout";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
   /* Hide header and footer only */
@@ -65,39 +68,126 @@ const INJECT_SCRIPT = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
     }
 
-    // Watch for checkout button clicks
+    // Check if element or its parents match CHECKOUT patterns (NOT add to cart!)
+    function isCheckoutElement(element) {
+      if (!element) return false;
+      
+      // Get the DIRECT text of the clicked element (not all children text)
+      const directText = (element.innerText || element.textContent || '').toLowerCase().trim();
+      
+      // EXCLUDE: Add to bag/cart buttons - these should work normally in the app
+      if (
+        directText.includes('add to bag') ||
+        directText.includes('add to cart') ||
+        directText.includes('add item') ||
+        directText === 'add' ||
+        directText.includes('buy now')
+      ) {
+        console.log('[Home JS] ✅ Add to cart button - allowing normal behavior');
+        return false;
+      }
+      
+      // Check this element and up to 3 parent levels
+      let el = element;
+      for (let i = 0; i < 3 && el; i++) {
+        const text = (el.innerText || el.textContent || '').toLowerCase().trim();
+        const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
+        const className = (el.className || '').toLowerCase();
+        
+        // EXCLUDE add to cart buttons at any level
+        if (
+          text.includes('add to bag') ||
+          text.includes('add to cart') ||
+          className.includes('add-to-cart') ||
+          className.includes('add-to-bag') ||
+          className.includes('ec-product-browser__button') // Ecwid's add to cart button
+        ) {
+          console.log('[Home JS] ✅ Add to cart element detected - allowing normal behavior');
+          return false;
+        }
+        
+        // ONLY match explicit checkout/view cart actions
+        if (
+          text === 'go to checkout' ||
+          text === 'proceed to checkout' ||
+          text === 'checkout' ||
+          text === 'view cart' ||
+          text === 'view shopping cart' ||
+          text === 'shopping cart' ||
+          (href.includes('/cart') && !href.includes('add')) ||
+          (href.includes('#cart') || href.includes('#!/cart')) ||
+          (href.includes('checkout') && !href.includes('add'))
+        ) {
+          console.log('[Home JS] 🛒 Checkout/view cart button detected:', text);
+          return true;
+        }
+        
+        el = el.parentElement;
+      }
+      return false;
+    }
+
+    // Watch for checkout button clicks - INTERCEPT AND BLOCK
     function watchAddToBag() {
       // Debounce - only fire once per click
       let isTracking = false;
 
-      // Track clicks on checkout buttons
+      // INTERCEPT clicks on checkout/cart buttons - use capture phase to get it first
       document.addEventListener('click', function(e) {
-        if (isTracking) return; // Ignore if already tracking
+        if (isTracking) return;
 
         const target = e.target;
         if (!target) return;
 
-        const text = (target.textContent || '').toLowerCase();
-        const href = (target.getAttribute('href') || '').toLowerCase();
-        const classList = target.className || '';
-
-        // Check if it's a checkout button
-        if (
-          text.includes('checkout') ||
-          text.includes('go to checkout') ||
-          text.includes('proceed to checkout') ||
-          href.includes('checkout') ||
-          classList.includes('checkout')
-        ) {
+        // Check if this is a checkout/cart button
+        if (isCheckoutElement(target)) {
+          console.log('[Home JS] 🛒 Checkout/cart button clicked - intercepting!');
+          
+          // BLOCK the navigation
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          
           isTracking = true;
+          
+          // Get current page URL - this is the product page URL
+          let currentUrl = window.location.href;
+          let productUrl = currentUrl;
+          
+          // If we're on a product page, use that URL
+          // Ecwid product URLs look like: #!/~/product/id=123456 or /products#!/~/product/...
+          if (currentUrl.includes('/product/') || currentUrl.includes('#!/~/product')) {
+            productUrl = currentUrl;
+            console.log('[Home JS] On product page, will open:', productUrl);
+          } else {
+            // Not on a product page, just open the main store
+            productUrl = 'https://greenhauscc.com/products';
+            console.log('[Home JS] Not on product page, opening store');
+          }
+          
+          // Get cart count for info
+          const cartBadge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count');
+          const cartCount = cartBadge ? parseInt(cartBadge.textContent || '0') : 0;
+          
+          // Send message to open browser with current page
+          window.ReactNativeWebView.postMessage(JSON.stringify({ 
+            type: 'OPEN_EXTERNAL_CHECKOUT',
+            url: productUrl,
+            currentPage: currentUrl,
+            cartCount: cartCount
+          }));
+          
+          // Also send analytics
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
 
-          // Reset after 1 second
+          // Reset after 2 seconds
           setTimeout(function() {
             isTracking = false;
-          }, 1000);
+          }, 2000);
+          
+          return false;
         }
-      }, true);
+      }, true); // true = capture phase, fires before bubbling
 
       // Intercept XMLHttpRequest to update cart count
       const originalXHROpen = XMLHttpRequest.prototype.open;
@@ -165,6 +255,57 @@ const INJECT_SCRIPT = `
         });
       }
     }
+
+    // Intercept hash changes ONLY for full cart page navigation
+    // NOT for cart popups or add-to-cart confirmations
+    let lastHash = window.location.hash;
+    let hashChangeBlocked = false;
+    
+    function checkHashChange() {
+      if (hashChangeBlocked) return;
+      
+      const currentHash = window.location.hash.toLowerCase();
+      if (currentHash !== lastHash) {
+        const oldHash = lastHash;
+        lastHash = currentHash;
+        
+        // Only trigger for EXPLICIT cart PAGE navigation
+        // Ecwid cart page hash: #!/~/cart or #/~/cart
+        // NOT: product pages, popups, etc.
+        const isCartPageHash = (
+          currentHash === '#!/~/cart' ||
+          currentHash === '#/~/cart' ||
+          currentHash === '#!/cart' ||
+          currentHash.startsWith('#!/~/cart/') ||
+          currentHash.startsWith('#/~/cart/') ||
+          currentHash === '#!/~/checkout' ||
+          currentHash.startsWith('#!/~/checkout/')
+        );
+        
+        // Skip if coming from a product page (adding to cart shows popup, not cart page)
+        const wasOnProduct = oldHash.includes('/product/') || oldHash.includes('#!/~/product');
+        
+        if (isCartPageHash && !wasOnProduct) {
+          console.log('[Home JS] 🛒 Cart PAGE navigation detected:', currentHash);
+          
+          // Block further triggers for 3 seconds
+          hashChangeBlocked = true;
+          setTimeout(() => { hashChangeBlocked = false; }, 3000);
+          
+          window.ReactNativeWebView.postMessage(JSON.stringify({ 
+            type: 'OPEN_EXTERNAL_CHECKOUT',
+            url: 'https://greenhauscc.com/products/cart'
+          }));
+          
+          try { history.back(); } catch(e) {}
+        } else {
+          console.log('[Home JS] Hash changed (not cart page):', oldHash, '->', currentHash);
+        }
+      }
+    }
+    
+    // Listen for hash changes
+    window.addEventListener('hashchange', checkHashChange);
 
     // Run immediately and on intervals
     sendCartCount();
@@ -388,17 +529,102 @@ export default function HomeTab() {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  // Open URL in external browser (works in Expo Go via Linking)
+  const openInExternalBrowser = useCallback(async (url: string, cartCount: number = 0) => {
+    console.log('[Home] Opening external browser:', url);
+    
+    // Show helpful message
+    if (Platform.OS === 'android') {
+      ToastAndroid.show('Opening browser...', ToastAndroid.SHORT);
+    }
+    
+    try {
+      // Try WebBrowser first (Chrome Custom Tabs) - may share cookies on some devices
+      const result = await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+        toolbarColor: '#1E4D3A',
+        controlsColor: '#FFFFFF',
+        showTitle: true,
+      });
+      console.log('[Home] ✅ WebBrowser result:', result.type);
+    } catch (error) {
+      console.log('[Home] WebBrowser failed, trying Linking:', error);
+      // Fallback to Linking
+      try {
+        await Linking.openURL(url);
+        console.log('[Home] ✅ Opened via Linking');
+      } catch (linkError) {
+        console.log('[Home] ❌ Both methods failed:', linkError);
+        Alert.alert(
+          'Unable to Open Browser',
+          'Please visit greenhauscc.com in your browser to complete your purchase.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+  }, []);
+
+  // Check if URL is a cart/checkout route
+  const isCartOrCheckoutRoute = useCallback((url: string) => {
+    const normalizedUrl = url.toLowerCase();
+    return (
+      normalizedUrl.includes('/cart') ||
+      normalizedUrl.includes('/checkout') ||
+      normalizedUrl.includes('/place-order') ||
+      normalizedUrl.includes('/payment') ||
+      normalizedUrl.includes('#cart') ||
+      normalizedUrl.includes('#checkout') ||
+      normalizedUrl.includes('#!/cart') ||
+      normalizedUrl.includes('#!/checkout') ||
+      normalizedUrl.includes('/products/cart')
+    );
+  }, []);
+
+  // Intercept navigation BEFORE it happens
+  const handleShouldStartLoadWithRequest = useCallback((request: WebViewNavigation) => {
+    const url = request.url || '';
+    const platformConfig = getPlatformConfig();
+    
+    // On Android where purchase flow is disabled, intercept cart/checkout and open external browser
+    if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
+      console.log('[Home] 🚫 Intercepting cart/checkout navigation:', url);
+      console.log('[Home] Opening external browser instead...');
+      
+      // Open external browser
+      openInExternalBrowser('https://greenhauscc.com/products/cart');
+      
+      // Block the in-app navigation
+      return false;
+    }
+    
+    return true;
+  }, [isCartOrCheckoutRoute, openInExternalBrowser]);
+
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
+    const platformConfig = getPlatformConfig();
 
-    // If navigated to cart page, switch to cart tab and reload it
-    if (url.includes('/cart') || url.includes('/products/cart')) {
-      // Reload cart tab to show updated items
-      const cartRef = webviewRefs.cart?.current;
-      if (cartRef) {
-        cartRef.reload();
+    // If navigated to cart page
+    if (isCartOrCheckoutRoute(url)) {
+      console.log('[Home] Cart/checkout detected in navigation state:', url);
+      
+      // On Android where purchase flow is disabled, open external browser
+      if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
+        console.log('[Home] Opening external browser and going back...');
+        openInExternalBrowser('https://greenhauscc.com/products/cart');
+        // Navigate back to prevent getting stuck on cart page
+        ref.current?.goBack();
+        return;
       }
-      router.push('/(tabs)/cart');
+      
+      // iOS: allow normal cart flow if cart tab exists
+      if (platformConfig.allowPurchaseFlow) {
+        const cartRef = webviewRefs.cart?.current;
+        if (cartRef) {
+          cartRef.reload();
+        }
+        router.push('/(tabs)/cart');
+      }
     }
   };
 
@@ -464,6 +690,8 @@ export default function HomeTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled={true}
+        thirdPartyCookiesEnabled={true}
         pullToRefreshEnabled={true}
         androidHardwareAccelerationDisabled={false}
         androidLayerType="hardware"
@@ -489,18 +717,41 @@ export default function HomeTab() {
           setHasError(true);
           setIsLoading(false);
         }}
+        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'CART_COUNT') {
               setCartCount(data.count);
+            } else if (data.type === 'OPEN_EXTERNAL_CHECKOUT') {
+              // Open external browser for checkout
+              console.log('[Home] 📱 Received OPEN_EXTERNAL_CHECKOUT message:', data);
+              
+              // Use the current page URL
+              let url = data.url || 'https://greenhauscc.com/products';
+              
+              // Make sure it's a valid URL
+              if (!url.includes('greenhauscc.com')) {
+                url = 'https://greenhauscc.com/products';
+              }
+              
+              console.log('[Home] Opening URL in browser:', url);
+              
+              // Show helpful message
+              if (Platform.OS === 'android') {
+                ToastAndroid.show('Opening in browser - add to cart & checkout there', ToastAndroid.LONG);
+              }
+              
+              openInExternalBrowser(url, data.cartCount || 0);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
               }
             }
-          } catch (e) {}
+          } catch (e) {
+            console.log('[Home] Error parsing message:', e);
+          }
         }}
         renderLoading={() => (
           <View style={styles.loadingOverlay}>

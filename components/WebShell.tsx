@@ -1,17 +1,64 @@
 import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, Platform, AppState, Alert, Share, ToastAndroid, Text } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Platform, AppState, Alert, Share, ToastAndroid, Text, NativeModules, Linking } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
 import type { WebViewProps } from 'react-native-webview';
 import type WebViewType from 'react-native-webview';
 import { useApp } from '@/contexts/AppContext';
 import { useRouter } from 'expo-router';
-import { APP_CONFIG, REVIEW_BUILD, SAFE_MODE, HIDE_VAPE_CONTENT, REVIEW_DEMO_FAKE_AUTH, REVIEW_DEMO_FAKE_CHECKOUT, WEBVIEW_MINIMAL_MODE } from '@/constants/config';
+import { APP_CONFIG, REVIEW_BUILD, SAFE_MODE, HIDE_VAPE_CONTENT, REVIEW_DEMO_FAKE_AUTH, REVIEW_DEMO_FAKE_CHECKOUT, WEBVIEW_MINIMAL_MODE, getPlatformConfig } from '@/constants/config';
 import { cartState, type CartStorageSnapshot } from '@/lib/cartState';
 import { OrderConfirmationModal } from './OrderConfirmationModal';
 import { FakeDemoOrdersService, type FakeDemoOrder } from '@/services/fakeDemoOrders';
 import { PRE_AUTH_COOKIES } from '@/services/preAuthCookies';
 import { debugLog, debugWarn, debugError } from '@/lib/logger';
+import { ANDROID_CHECKOUT_BLOCKER_SCRIPT } from '@/lib/androidCheckoutBlocker';
+
+const { ExternalBrowser } = NativeModules;
+
+/**
+ * Opens URL in EXTERNAL browser (not Custom Tabs/in-app browser)
+ * Uses custom native Android module with proper Intent flags
+ * Falls back to Linking.openURL for Expo Go / development builds
+ */
+async function openInExternalBrowser(url: string): Promise<void> {
+  console.log('[openInExternalBrowser] Opening URL:', url);
+
+  // Method 1: Try custom native module (works in production builds)
+  if (Platform.OS === 'android' && ExternalBrowser) {
+    try {
+      await ExternalBrowser.openURL(url);
+      console.log('[openInExternalBrowser] ✅ Opened via native module');
+      return;
+    } catch (error) {
+      console.log('[openInExternalBrowser] ⚠️ Native module failed, trying fallback:', error);
+    }
+  }
+
+  // Method 2: Fallback to Linking.openURL (works in Expo Go and everywhere else)
+  // This WILL open in external browser on both iOS and Android
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+      console.log('[openInExternalBrowser] ✅ Opened via Linking.openURL');
+      return;
+    } else {
+      console.log('[openInExternalBrowser] ⚠️ URL not supported by any app');
+    }
+  } catch (error) {
+    console.log('[openInExternalBrowser] ❌ Linking.openURL failed:', error);
+  }
+
+  // Method 3: Last resort - just try opening anyway
+  try {
+    await Linking.openURL(url);
+    console.log('[openInExternalBrowser] ✅ Opened via direct Linking.openURL');
+  } catch (error) {
+    console.log('[openInExternalBrowser] ❌ All methods failed:', error);
+    throw new Error('Failed to open URL in external browser');
+  }
+}
 
 const REVIEW_DEMO_MESSAGE = 'This is a demo-only build for App Review. Login and Checkout are intentionally disabled.';
 
@@ -2338,6 +2385,11 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
     const webviewRef = useRef<WebView>(null);
     const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Build marker: proves which JS bundle is running on-device (shows under ReactNativeJS in adb logcat)
+    useEffect(() => {
+      console.log(`[WebShell:${tabKey}] BUILD_MARKER v2025-12-21.1`);
+    }, [tabKey]);
+
     // Simple watchdog: if Home stays blank for too long, force-load the URL once
     useEffect(() => {
       if (tabKey !== 'home') return;
@@ -2367,6 +2419,7 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
     const lastHydratedSignatureRef = useRef<string | null>(null);
     const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isLoadingRef = useRef(false); // Initialize to match isLoading state
+    const lastExternalizedUrlRef = useRef<{ url: string; ts: number } | null>(null);
     
     const serializeForInjection = useCallback((value: unknown) => {
       try {
@@ -2464,12 +2517,45 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
     const handleMessage = useCallback(async (event: any) => {
       try {
         const rawData = event.nativeEvent.data || '{}';
-        // debugLog(`[WebShell:${tabKey}] 📨 Raw message received:`, rawData); // DISABLED - too verbose
+        console.log(`[WebShell:${tabKey}] 📨 MESSAGE RECEIVED:`, rawData.substring(0, 200));
 
         const msg = JSON.parse(rawData);
-        // Only log message type, not full payload
-        debugLog(`[WebShell:${tabKey}] 📨 Message type:`, msg.type, 'from:', msg.source);
-        
+        console.log(`[WebShell:${tabKey}] 📨 Parsed message type:`, msg.type);
+
+        // Android checkout blocker - open external URL
+        if (msg.type === 'OPEN_EXTERNAL_URL') {
+          console.log(`[WebShell:${tabKey}] ✅ OPEN_EXTERNAL_URL detected! URL:`, msg.url);
+          console.log(`[WebShell:${tabKey}] 🌐 Opening in EXTERNAL browser...`);
+
+          // Toast notification for Android
+          if (Platform.OS === 'android') {
+            ToastAndroid.show('Opening browser to complete purchase...', ToastAndroid.SHORT);
+          }
+
+          openInExternalBrowser(msg.url)
+            .then(() => {
+              console.log(`[WebShell:${tabKey}] ✅ External browser opened successfully`);
+            })
+            .catch((err: any) => {
+              console.log(`[WebShell:${tabKey}] ❌ Failed to open browser:`, err);
+              debugError('[WebShell] Error opening external URL:', err);
+            });
+          return;
+        }
+
+        // Check platform
+        if (msg.type === 'CHECK_PLATFORM') {
+          console.log(`[WebShell:${tabKey}] Platform check - RN Platform.OS: ${Platform.OS}, JS reported: ${msg.platform}`);
+          return;
+        }
+
+        // Android checkout blocker debug bridge (WebView -> RN -> adb logcat)
+        if (msg.type === 'ANDROID_BLOCKER_DEBUG') {
+          // Use console.log (not debugLog) so it shows up reliably under ReactNativeJS in adb logcat
+          console.log(`[AndroidBlockerDebug:${tabKey}]`, msg.event || 'event', msg.data || msg);
+          return;
+        }
+
         if (msg.type === 'CART_COUNT' || msg.type === 'CART') {
           // Parse the incoming count first
           const count = Number(msg.value ?? msg.count ?? 0);
@@ -2891,9 +2977,24 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
           debugLog(`[WebShell:${tabKey}] ✅ Final cart count: ${normalized} - updating badge now`);
           setCartCount(normalized);
         } else if (msg.type === 'NAVIGATE_TAB') {
+          // ANDROID GOOGLE PLAY COMPLIANCE:
+          // The web app signals checkout/cart intent via NAVIGATE_TAB('cart') even when the URL change
+          // doesn't trigger native navigation callbacks. Use this as the authoritative signal.
+          if (Platform.OS === 'android') {
+            try {
+              const cfg = getPlatformConfig();
+              if (cfg && cfg.allowPurchaseFlow === false && msg.tab === 'cart') {
+                ToastAndroid.show('Opening browser to complete purchase...', ToastAndroid.SHORT);
+                openInExternalBrowser('https://greenhauscc.com/products/cart').catch((err: any) => {
+                  ToastAndroid.show(`Failed to open browser: ${err?.message || err}`, ToastAndroid.LONG);
+                });
+                return;
+              }
+            } catch (_) {}
+          }
+
           if (msg.tab && msg.tab !== tabKey) {
             debugLog(`[WebShell:${tabKey}] 🧭 Navigating to tab:`, msg.tab);
-            
             // Just use router.push for ALL tabs - let cart.tsx handle cart navigation with hash checking
             debugLog(`[WebShell:${tabKey}] ➡️ Switching to ${msg.tab} tab via router.push`);
             router.push(`/(tabs)/${msg.tab}` as any);
@@ -2983,6 +3084,68 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
       }
     }, [tabKey, ref, webviewRef]);
 
+    // ANDROID: Some SPA navigations don't trigger onShouldStartLoadWithRequest.
+    // Use onNavigationStateChange as another native signal to externalize cart/checkout.
+    const handleNavigationStateChange = useCallback(
+      (navState: any) => {
+        if (Platform.OS !== 'android') return;
+        const cfg = getPlatformConfig();
+        if (cfg?.allowPurchaseFlow !== false) return;
+
+        const url = String(navState?.url || '').toLowerCase();
+        if (!url) return;
+
+        const isCheckoutish =
+          url.includes('/cart') ||
+          url.includes('/checkout') ||
+          url.includes('/place-order') ||
+          url.includes('/payment') ||
+          url.includes('#cart') ||
+          url.includes('#checkout') ||
+          url.includes('cart') ||
+          url.includes('checkout');
+
+        if (!isCheckoutish) return;
+
+        const now = Date.now();
+        const last = lastExternalizedUrlRef.current;
+        if (last && last.url === url && now - last.ts < 2500) {
+          return; // debounce
+        }
+        lastExternalizedUrlRef.current = { url, ts: now };
+
+        // Visible confirmation on-device
+        try {
+          ToastAndroid.show('Opening browser to complete purchase...', ToastAndroid.SHORT);
+        } catch (_) {}
+
+        // Stop in-app navigation and open external browser
+        const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+        try {
+          (targetRef as any)?.stopLoading?.();
+        } catch (_) {}
+
+        openInExternalBrowser('https://greenhauscc.com/products/cart').catch((err: any) => {
+          try {
+            ToastAndroid.show(`Failed to open browser: ${err?.message || err}`, ToastAndroid.LONG);
+          } catch (_) {}
+        });
+
+        // Keep WebView on browsing
+        setTimeout(() => {
+          try {
+            (targetRef as any)?.injectJavaScript?.(`
+              (function(){
+                try { location.href = 'https://greenhauscc.com/products'; } catch(e) {}
+              })();
+              true;
+            `);
+          } catch (_) {}
+        }, 50);
+      },
+      [ref, webviewRef]
+    );
+
     const handleHttpError = useCallback((syntheticEvent: any) => {
       const { nativeEvent } = syntheticEvent;
       debugError(`[WebShell:${tabKey}] 🌐 HTTP error:`, nativeEvent);
@@ -2997,6 +3160,57 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
       debugLog(`[WebShell:${tabKey}] 📤 onLoadStart fired`);
       debugLog(`[WebShell:${tabKey}] 📤 Load start URL:`, nativeEvent?.url);
       debugLog(`[WebShell:${tabKey}] 📤 Load start navigationType:`, nativeEvent?.navigationType);
+
+      // ANDROID GOOGLE PLAY COMPLIANCE:
+      // Some in-page navigations do NOT trigger onShouldStartLoadWithRequest reliably.
+      // So we also enforce the "no cart/checkout in WebView" rule here at load start.
+      if (Platform.OS === 'android') {
+        const url = String(nativeEvent?.url || '').toLowerCase();
+        const isCheckoutish =
+          url.includes('/cart') ||
+          url.includes('/checkout') ||
+          url.includes('/place-order') ||
+          url.includes('/payment') ||
+          url.includes('/order') ||
+          url.includes('#cart') ||
+          url.includes('#checkout') ||
+          url.includes('checkout') ||
+          url.includes('cart');
+
+        if (isCheckoutish) {
+          // Log to adb logcat (ReactNativeJS)
+          console.log(`[WebShell:${tabKey}] ANDROID_EXTERNALIZE (loadStart)`, url);
+
+          // Stop the WebView from loading the checkout/cart page
+          const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+          try {
+            (targetRef as any)?.stopLoading?.();
+          } catch (_) {}
+
+          // Open external browser to website checkout/cart
+          openInExternalBrowser('https://greenhauscc.com/products/cart').catch((err: any) => {
+            console.log('[WebShell] openInExternalBrowser failed', err?.message || String(err));
+          });
+
+          // Keep the in-app WebView on browsing (don’t leave user stuck on a blocked route)
+          setTimeout(() => {
+            try {
+              (targetRef as any)?.injectJavaScript?.(`
+                (function(){
+                  try {
+                    if (!/\\/products/i.test(location.href)) {
+                      location.href = 'https://greenhauscc.com/products';
+                    }
+                  } catch(e) {}
+                })();
+                true;
+              `);
+            } catch (_) {}
+          }, 50);
+
+          return; // Don't run normal loadStart logic for blocked pages
+        }
+      }
       
       // Ensure WebView is still mounted
       if (!isMountedRef.current) {
@@ -3007,7 +3221,7 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
       // Only hydrate cart storage on the cart tab to avoid cookie churn on other pages
       const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
       if (targetRef) {
-        if (!WEBVIEW_MINIMAL_MODE && tabKey === 'cart') {
+        if (tabKey === 'cart') {
           debugLog(`[WebShell:${tabKey}] 🔄 Load start - hydrating cart storage EARLY to preserve cart ID`);
           hydrateCartStorage(targetRef, { tabKey, allowReload: false });
         }
@@ -3033,9 +3247,6 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
       // Ensure content is visible - inject script to make sure body/content is visible
       const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
       if (targetRef) {
-        if (WEBVIEW_MINIMAL_MODE) {
-          return;
-        }
         // Run immediately and with delays to catch all cases
         const ensureVisibility = () => {
           targetRef.injectJavaScript(`
@@ -3185,6 +3396,11 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
           }
 
           const normalizedUrl = url.toLowerCase();
+          
+          // LOG ALL NAVIGATION on Android for debugging
+          if (Platform.OS === 'android') {
+            console.log(`[WebShell:${tabKey}] Navigation request:`, url);
+          }
 
           if (
             normalizedUrl.startsWith('about:blank') ||
@@ -3195,13 +3411,58 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
             return true;
           }
 
+          // ANDROID: Block cart/checkout routes FIRST (before host check)
+          if (Platform.OS === 'android' && !getPlatformConfig().allowPurchaseFlow) {
+            const isCartRoute =
+              normalizedUrl.includes('/cart') ||
+              normalizedUrl.includes('/checkout') ||
+              normalizedUrl.includes('/place-order') ||
+              normalizedUrl.includes('/payment') ||
+              normalizedUrl.includes('/billing') ||
+              normalizedUrl.includes('/order') ||
+              normalizedUrl.includes('/step') ||
+              normalizedUrl.includes('#cart') ||
+              normalizedUrl.includes('#checkout') ||
+              normalizedUrl.includes('#order') ||
+              normalizedUrl.includes('#payment') ||
+              normalizedUrl.includes('#!/cart') ||
+              normalizedUrl.includes('#!/checkout') ||
+              normalizedUrl.includes('cart=true') ||
+              normalizedUrl.includes('checkout=true') ||
+              normalizedUrl.match(/[?&#]mode=cart/i) ||
+              normalizedUrl.match(/[?&#]mode=checkout/i) ||
+              normalizedUrl.match(/\/products\/cart/i);
+
+            if (isCartRoute) {
+              console.log(`[WebShell:${tabKey}] 🚫 ANDROID BLOCKING CART/CHECKOUT NAVIGATION 🚫`);
+              console.log(`[WebShell:${tabKey}] Blocked URL:`, url);
+              console.log(`[WebShell:${tabKey}] Opening external browser instead...`);
+
+              // Toast notification
+              try {
+                ToastAndroid.show('Opening browser to complete purchase...', ToastAndroid.SHORT);
+              } catch (_) {}
+
+              // Open external browser immediately
+              openInExternalBrowser('https://greenhauscc.com/products/cart')
+                .then(() => {
+                  console.log(`[WebShell:${tabKey}] ✅ External browser opened successfully`);
+                })
+                .catch((err: any) => {
+                  console.log(`[WebShell:${tabKey}] ❌ Failed to open browser:`, err);
+                });
+
+              // Block the in-app navigation
+              return false;
+            }
+          }
+
           const isAllowedHost = ALLOWED_HOST_PATTERNS.some((pattern) =>
             normalizedUrl.includes(pattern)
           );
 
           if (!isAllowedHost) {
             debugLog(`[WebShell:${tabKey}] 🚫 Blocking navigation to external host:`, url);
-            // Silently block external links in demo mode - no alert spam
             return false;
           }
 
@@ -3518,12 +3779,6 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
           }}
           source={computedSource}
           // Force immediate render
-          renderError={() => (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>Failed to load</Text>
-              <Text style={styles.errorSubtext}>Tap to reload or check connection</Text>
-            </View>
-          )}
           renderLoading={() => (
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#22c55e" />
@@ -3540,33 +3795,102 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
           thirdPartyCookiesEnabled
           javaScriptEnabled
           domStorageEnabled
+          geolocationEnabled={true}
+          mediaPlaybackRequiresUserAction={false}
           cacheEnabled={true}
           incognito={false}
           setSupportMultipleWindows={false}
           allowsBackForwardNavigationGestures
           pullToRefreshEnabled={true}
           injectedJavaScriptBeforeContentLoaded={`
-            ${INJECTED_CSS}
-            ${cartHydrationScript}
-            // Minimal visibility fix - only run once, no observers
+            // ANDROID: Nuclear checkout blocker - runs BEFORE page loads
+            ${Platform.OS === 'android' && !getPlatformConfig().allowPurchaseFlow ? `
+            console.log('[WebShell] 🚫 Installing PRE-LOAD checkout blocker...');
+
+            // Override window.location.hash setter
+            (function() {
+              const originalHashSetter = Object.getOwnPropertyDescriptor(window.Location.prototype, 'hash').set;
+              Object.defineProperty(window.Location.prototype, 'hash', {
+                set: function(value) {
+                  if (value && (value.includes('cart') || value.includes('checkout') || value.includes('!/cart') || value.includes('!/checkout'))) {
+                    console.log('[PRELOAD] 🚫 BLOCKED hash =', value);
+                    if (window.ReactNativeWebView) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'OPEN_EXTERNAL_URL',
+                        url: 'https://greenhauscc.com/products/cart'
+                      }));
+                    }
+                    return;
+                  }
+                  originalHashSetter.call(this, value);
+                },
+                get: function() {
+                  return window.location.hash;
+                }
+              });
+              console.log('[PRELOAD] ✅ Hash blocker installed');
+            })();
+            ` : ''}
+
+            // Minimal, safe, always-exec pre-load script (no nested template literals).
             (function() {
               try {
-                if (document.body) {
-                  document.body.style.display = '';
-                  document.body.style.visibility = 'visible';
-                  document.body.style.opacity = '1';
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'CHECK_PLATFORM',
+                    platform: '${Platform.OS}',
+                    ts: Date.now()
+                  }));
+                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                    type: 'ANDROID_BLOCKER_DEBUG',
+                    event: 'beforeContentLoaded_ran',
+                    data: { platform: '${Platform.OS}', ts: Date.now() }
+                  }));
                 }
-                if (document.documentElement) {
-                  document.documentElement.style.display = '';
-                  document.documentElement.style.visibility = 'visible';
-                  document.documentElement.style.opacity = '1';
-                }
-              } catch(e) {}
+              } catch (e) {}
             })();
+
+            ${INJECTED_CSS}
+            ${cartHydrationScript}
             true;
           `}
           injectedJavaScript={`
+            // Note: Android WebView often suppresses window.alert(). Don't rely on popups for debugging.
+            console.log('JS INJECTION - Platform.OS:', '${Platform.OS}');
+            
             debugLog('🔥 [INJECT] Starting essential scripts only...');
+            
+            // Android checkout blocker - POST LOAD (backup - override Ecwid)
+            ${Platform.OS === 'android' ? `
+            (function() {
+              function redirectToWeb() {
+                alert('To complete your purchase, please visit greenhauscc.com');
+                if (window.ReactNativeWebView) {
+                  window.ReactNativeWebView.postMessage(JSON.stringify({type: 'OPEN_EXTERNAL_URL', url: 'https://greenhauscc.com/products/cart'}));
+                }
+              }
+              
+              // Override Ecwid.openPage if it exists
+              function overrideEcwid() {
+                if (window.Ecwid && window.Ecwid.openPage && !window.Ecwid.openPage.__blocked) {
+                  var orig = window.Ecwid.openPage;
+                  window.Ecwid.openPage = function(page) {
+                    console.log('[POST-LOAD BLOCKER] Ecwid.openPage:', page);
+                    if (page && (String(page).toLowerCase().indexOf('cart') > -1 || String(page).toLowerCase().indexOf('checkout') > -1)) {
+                      console.log('[POST-LOAD BLOCKER] 🚫 BLOCKED');
+                      redirectToWeb();
+                      return;
+                    }
+                    return orig.apply(this, arguments);
+                  };
+                  window.Ecwid.openPage.__blocked = true;
+                  console.log('[POST-LOAD BLOCKER] ✅ Ecwid overridden');
+                }
+              }
+              overrideEcwid();
+              setInterval(overrideEcwid, 1000);
+            })();
+            ` : ''}
 
             // AGGRESSIVE image quality fix - force high-res images
             (function() {
@@ -3700,22 +4024,68 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
               try { ${createInjectedJS(tabKey)} } catch(e) { debugError('Tab error:', e); }
             }, 700);
 
+            // Android checkout blocker for Google Play compliance
+            ${Platform.OS === 'android' && !getPlatformConfig().allowPurchaseFlow ? `
+            setTimeout(() => {
+              try {
+                ${ANDROID_CHECKOUT_BLOCKER_SCRIPT}
+                debugLog('🚫 [Android] Checkout blocker active');
+              } catch(e) {
+                debugError('🚫 [Android] Checkout blocker error:', e);
+              }
+            }, 800);
+            ` : ''}
+
             debugLog('🔍 WEBVIEW DEBUG - Scripts scheduled, page should load immediately');
             true;
           `}
           onMessage={handleMessage}
           onError={handleError}
           onHttpError={handleHttpError}
-          onLoadStart={handleLoadStart}
-          onLoadEnd={handleLoadEnd}
+          onLoadStart={(e) => {
+            try {
+              if (Platform.OS === 'android') {
+                const u = e?.nativeEvent?.url || '';
+                console.log(`[WebShell:${tabKey}] onLoadStart`, u);
+              }
+            } catch (_) {}
+            handleLoadStart(e);
+          }}
+          onLoadEnd={(e) => {
+            try {
+              if (Platform.OS === 'android') {
+                const u = e?.nativeEvent?.url || '';
+                console.log(`[WebShell:${tabKey}] onLoadEnd`, u);
+              }
+            } catch (_) {}
+            handleLoadEnd(e);
+            // Force a tiny post-load inject that pings RN (proves injection works even if beforeContentLoaded didn't)
+            try {
+              if (Platform.OS === 'android') {
+                const targetRef = (ref && typeof ref !== 'function' && ref.current) || webviewRef.current;
+                targetRef?.injectJavaScript(`
+                  (function(){
+                    try {
+                      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+                        type: 'ANDROID_BLOCKER_DEBUG',
+                        event: 'manual_inject_onLoadEnd',
+                        data: { href: String(location && location.href), ts: Date.now() }
+                      }));
+                    } catch(e) {}
+                  })();
+                  true;
+                `);
+              }
+            } catch (_) {}
+          }}
           onLoad={(syntheticEvent) => {
             // Just log - don't manage loading state
             debugLog(`[WebShell:${tabKey}] 📥 onLoad fired`);
           }}
+          onNavigationStateChange={handleNavigationStateChange}
           onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
           startInLoadingState={false} // Disabled to prevent frozen loading spinner in iOS Simulator
           allowsInlineMediaPlayback
-          mediaPlaybackRequiresUserAction={false}
           allowFileAccess
           allowUniversalAccessFromFileURLs
           mixedContentMode="always"
@@ -3730,6 +4100,7 @@ const WebShellComponent = React.forwardRef<any, WebShellProps>(
             const { nativeEvent } = syntheticEvent;
             debugError(`[WebShell:${tabKey}] ⚠️ WebView render process gone:`, nativeEvent);
           }}
+          userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
           {...restProps}
         />
         {/* Removed loading overlay - was blocking content */}

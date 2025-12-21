@@ -7,3 +7,4 @@ ios
 android
 .DS_Store
 *.log
+bun.lock
