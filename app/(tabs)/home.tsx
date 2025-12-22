@@ -72,47 +72,61 @@ const INJECT_SCRIPT = `
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Check if element is a purchase button (Add to Bag, Add More, Checkout, etc.)
+    // Check if element is a purchase BUTTON (not product cards)
     function isPurchaseElement(el) {
       if (!el) return false;
       
-      // Check the clicked element and parents
-      for (var i = 0; i < 5 && el; i++) {
+      var clickedTag = (el.tagName || '').toLowerCase();
+      var clickedCls = (el.className || '').toLowerCase();
+      
+      // SKIP if clicking on a product card/link (not a button)
+      // Product cards have grid-product class or are links to product pages
+      var parent = el;
+      for (var p = 0; p < 5 && parent; p++) {
+        var pCls = (parent.className || '').toLowerCase();
+        var pHref = (parent.getAttribute ? parent.getAttribute('href') : '') || '';
+        // If we're in a product card/grid, don't intercept unless it's actually a button
+        if (pCls.indexOf('grid-product') !== -1 || pCls.indexOf('product-card') !== -1) {
+          // Only intercept if the clicked element is a button
+          if (clickedTag !== 'button' && clickedCls.indexOf('button') === -1) {
+            return false;
+          }
+        }
+        parent = parent.parentElement;
+      }
+      
+      // Only check clicked element and 2 immediate parents (not whole card)
+      for (var i = 0; i < 3 && el; i++) {
         var text = (el.innerText || el.textContent || '').toLowerCase().trim();
         var cls = (el.className || '').toLowerCase();
         var href = (el.getAttribute ? el.getAttribute('href') : '') || '';
         var tag = (el.tagName || '').toLowerCase();
         
-        // Match by text content
-        if (
-          text.indexOf('add to bag') !== -1 ||
-          text.indexOf('add to cart') !== -1 ||
-          text.indexOf('add more') !== -1 ||
-          text.indexOf('add item') !== -1 ||
-          text.indexOf('buy now') !== -1 ||
-          text === 'add' ||
-          text.indexOf('go to checkout') !== -1 ||
-          text.indexOf('proceed to checkout') !== -1 ||
-          text === 'checkout' ||
-          text.indexOf('view cart') !== -1
-        ) {
-          return true;
+        // Only match actual buttons or button-like elements
+        var isButton = tag === 'button' || cls.indexOf('button') !== -1 || cls.indexOf('btn') !== -1;
+        
+        // Match by text content ONLY if it's a button element
+        if (isButton || i === 0) {
+          if (
+            text === 'add to bag' ||
+            text === 'add to cart' ||
+            text === 'add more' ||
+            text === 'go to checkout' ||
+            text === 'checkout' ||
+            text === 'view cart' ||
+            text === 'proceed to checkout'
+          ) {
+            return true;
+          }
         }
         
-        // Match by Ecwid class names
+        // Match by Ecwid button class names
         if (
           cls.indexOf('form-control__button') !== -1 ||
-          cls.indexOf('ec-cart') !== -1 ||
           cls.indexOf('add-to-cart') !== -1 ||
           cls.indexOf('add-to-bag') !== -1 ||
-          cls.indexOf('details-product-purchase__add-to-bag') !== -1 ||
-          cls.indexOf('product-details__product-price-addtobag') !== -1
+          cls.indexOf('details-product-purchase__add-to-bag') !== -1
         ) {
-          return true;
-        }
-        
-        // Match by href
-        if (href.indexOf('/cart') !== -1 || href.indexOf('checkout') !== -1) {
           return true;
         }
         
@@ -176,18 +190,30 @@ export default function HomeTab() {
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Force hide spinner after 10 seconds if WebView is stuck
+  // Auto-retry counter to prevent infinite loops
+  const retryCountRef = useRef(0);
+  
   useEffect(() => {
     if (isLoading && !hasError) {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
       loadingTimeoutRef.current = setTimeout(() => {
-        setIsLoading(false);
-        setRefreshing(false);
-        setShowRetry(true);
-      }, 15000); // 15 seconds before showing retry
+        // Auto-retry up to 2 times before showing manual retry button
+        if (retryCountRef.current < 2) {
+          retryCountRef.current++;
+          ref.current?.reload();
+        } else {
+          setIsLoading(false);
+          setRefreshing(false);
+          setShowRetry(true);
+        }
+      }, 8000); // 8 seconds before auto-retry
     } else {
       setShowRetry(false);
+      if (!isLoading) {
+        retryCountRef.current = 0; // Reset retry counter on successful load
+      }
     }
 
     return () => {
