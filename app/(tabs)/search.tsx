@@ -52,191 +52,68 @@ const INJECTED_CSS = `
 
 const INJECT_SCRIPT = `
   (function() {
-    const style = document.createElement('style');
+    // Inject CSS
+    var style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        count = parseInt(badge.textContent.trim()) || 0;
-      }
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
-    }
-
-    // Check if element or its parents match ANY purchase button (Add to Bag, Add More, Checkout, etc.)
-    // On Android, ALL purchase actions should open external browser
-    function isPurchaseElement(element) {
-      if (!element) return false;
-      
-      // Get the DIRECT text of the clicked element
-      const directText = (element.innerText || element.textContent || '').toLowerCase().trim();
-      
-      // Check this element and up to 3 parent levels
-      let el = element;
-      for (let i = 0; i < 3 && el; i++) {
-        const text = (el.innerText || el.textContent || '').toLowerCase().trim();
-        const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
-        const className = (el.className || '').toLowerCase();
-        
-        // Match ALL purchase-related buttons
+    // Check if element is a purchase button
+    function isPurchaseElement(el) {
+      if (!el) return false;
+      for (var i = 0; i < 3 && el; i++) {
+        var text = (el.innerText || '').toLowerCase();
+        var cls = (el.className || '').toLowerCase();
+        var href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
         if (
-          // Add to cart/bag buttons
-          text.includes('add to bag') ||
-          text.includes('add to cart') ||
-          text.includes('add more') ||
-          text.includes('add item') ||
-          text === 'add' ||
-          text.includes('buy now') ||
-          // Checkout buttons
-          text === 'go to checkout' ||
-          text === 'proceed to checkout' ||
-          text === 'checkout' ||
-          text === 'view cart' ||
-          text === 'view shopping cart' ||
-          text === 'shopping cart' ||
-          // CSS class matches
-          className.includes('add-to-cart') ||
-          className.includes('add-to-bag') ||
-          className.includes('ec-product-browser__button') ||
-          className.includes('form-control__button') ||
-          // URL matches
-          (href.includes('/cart') && !href.includes('add')) ||
-          (href.includes('#cart') || href.includes('#!/cart')) ||
-          (href.includes('checkout') && !href.includes('add'))
-        ) {
-          console.log('[Browse JS] 🛒 Purchase button detected:', text || className);
-          return true;
-        }
-        
+          text.includes('add to bag') || text.includes('add to cart') || text.includes('add more') ||
+          text === 'go to checkout' || text === 'checkout' || text === 'view cart' ||
+          cls.includes('add-to-cart') || cls.includes('add-to-bag') || cls.includes('form-control__button') ||
+          href.includes('/cart') || href.includes('checkout')
+        ) return true;
         el = el.parentElement;
       }
       return false;
     }
 
-    // Intercept checkout/cart button clicks
-    let isTracking = false;
+    // Intercept purchase button clicks
+    var clicking = false;
     document.addEventListener('click', function(e) {
-      if (isTracking) return;
-
-      const target = e.target;
-      if (!target) return;
-
-      if (isPurchaseElement(target)) {
-        console.log('[Browse JS] 🛒 Purchase button clicked - opening in browser!');
-        
+      if (clicking) return;
+      if (isPurchaseElement(e.target)) {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
+        clicking = true;
         
-        isTracking = true;
+        // Get product URL from current page
+        var url = window.location.href;
+        var productId = null;
+        var m = url.match(/product\/id=(\d+)/i) || url.match(/-p(\d+)$/i);
+        if (m) productId = m[1];
         
-        // Get the current URL - if we're on a product page, we'll open that
-        let currentUrl = window.location.href;
-        let productId = null;
-        let productUrl = null;
+        var productUrl = productId ? 
+          'https://greenhauscc.com/products#!/~/product/id=' + productId : 
+          'https://greenhauscc.com/products';
         
-        // Try to extract product ID from current URL
-        const hashMatch = currentUrl.match(/product\/id=(\d+)/i);
-        const pathMatch = currentUrl.match(/-p(\d+)$/i);
+        window.ReactNativeWebView.postMessage(JSON.stringify({ 
+          type: 'OPEN_EXTERNAL_CHECKOUT',
+          url: productUrl,
+          productId: productId
+        }));
         
-        if (hashMatch) {
-          productId = hashMatch[1];
-        } else if (pathMatch) {
-          productId = pathMatch[1];
-        }
-        
-        // Try to get current product from Ecwid API
-        if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
-          window.Ecwid.Cart.get(function(cart) {
-            let cartCount = cart && cart.items ? cart.items.length : 0;
-            let lastItem = cart && cart.items && cart.items.length > 0 ? cart.items[cart.items.length - 1] : null;
-            
-            if (productId) {
-              productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
-            } else if (lastItem && lastItem.product && lastItem.product.id) {
-              productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + lastItem.product.id;
-            } else {
-              productUrl = 'https://greenhauscc.com/products';
-            }
-            
-            window.ReactNativeWebView.postMessage(JSON.stringify({ 
-              type: 'OPEN_EXTERNAL_CHECKOUT',
-              url: productUrl,
-              productId: productId || (lastItem ? lastItem.product.id : null),
-              productName: lastItem ? lastItem.product.name : null,
-              cartCount: cartCount
-            }));
-          });
-        } else {
-          if (productId) {
-            productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
-          } else {
-            productUrl = 'https://greenhauscc.com/products';
-          }
-          
-          window.ReactNativeWebView.postMessage(JSON.stringify({ 
-            type: 'OPEN_EXTERNAL_CHECKOUT',
-            url: productUrl,
-            productId: productId,
-            cartCount: 0
-          }));
-        }
-
-        setTimeout(function() {
-          isTracking = false;
-        }, 3000);
-        
+        setTimeout(function() { clicking = false; }, 2000);
         return false;
       }
     }, true);
 
-    // Intercept hash changes ONLY for full cart page navigation
-    let lastHash = window.location.hash;
-    let hashChangeBlocked = false;
-    
-    function checkHashChange() {
-      if (hashChangeBlocked) return;
-      
-      const currentHash = window.location.hash.toLowerCase();
-      if (currentHash !== lastHash) {
-        const oldHash = lastHash;
-        lastHash = currentHash;
-        
-        // Only trigger for EXPLICIT cart PAGE navigation
-        const isCartPageHash = (
-          currentHash === '#!/~/cart' ||
-          currentHash === '#/~/cart' ||
-          currentHash === '#!/cart' ||
-          currentHash.startsWith('#!/~/cart/') ||
-          currentHash.startsWith('#/~/cart/') ||
-          currentHash === '#!/~/checkout' ||
-          currentHash.startsWith('#!/~/checkout/')
-        );
-        
-        // Skip if coming from a product page
-        const wasOnProduct = oldHash.includes('/product/') || oldHash.includes('#!/~/product');
-        
-        if (isCartPageHash && !wasOnProduct) {
-          console.log('[Browse JS] 🛒 Cart PAGE navigation detected:', currentHash);
-          
-          hashChangeBlocked = true;
-          setTimeout(() => { hashChangeBlocked = false; }, 3000);
-          
-          // Just block cart navigation - don't open browser
-          // The click interceptor already handles opening the product page
-          try { history.back(); } catch(e) {}
-        }
-      }
+    // Simple cart count check
+    function sendCartCount() {
+      var badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count');
+      var count = badge ? (parseInt(badge.textContent) || 0) : 0;
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count: count }));
     }
     
-    window.addEventListener('hashchange', checkHashChange);
-
-    // Send immediately and every 3 seconds
     sendCartCount();
-    setInterval(sendCartCount, 3000);
   })();
   true;
 `;

@@ -67,309 +67,62 @@ const INJECTED_CSS = `
 
 const INJECT_SCRIPT = `
   (function() {
-    const style = document.createElement('style');
+    // Inject CSS
+    var style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-
-      // Try cart badge selectors (works even when hidden with CSS)
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        const badgeCount = parseInt(badge.textContent.trim()) || 0;
-        count = badgeCount;
-      }
-
-      // Always send the count
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
-    }
-
-    // Check if element or its parents match ANY purchase button (Add to Bag, Add More, Checkout, etc.)
-    // On Android, ALL purchase actions should open external browser
-    function isPurchaseElement(element) {
-      if (!element) return false;
-      
-      // Get the DIRECT text of the clicked element
-      const directText = (element.innerText || element.textContent || '').toLowerCase().trim();
-      
-      // Check this element and up to 3 parent levels
-      let el = element;
-      for (let i = 0; i < 3 && el; i++) {
-        const text = (el.innerText || el.textContent || '').toLowerCase().trim();
-        const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
-        const className = (el.className || '').toLowerCase();
-        
-        // Match ALL purchase-related buttons
+    // Check if element is a purchase button
+    function isPurchaseElement(el) {
+      if (!el) return false;
+      for (var i = 0; i < 3 && el; i++) {
+        var text = (el.innerText || '').toLowerCase();
+        var cls = (el.className || '').toLowerCase();
+        var href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
         if (
-          // Add to cart/bag buttons
-          text.includes('add to bag') ||
-          text.includes('add to cart') ||
-          text.includes('add more') ||
-          text.includes('add item') ||
-          text === 'add' ||
-          text.includes('buy now') ||
-          // Checkout buttons
-          text === 'go to checkout' ||
-          text === 'proceed to checkout' ||
-          text === 'checkout' ||
-          text === 'view cart' ||
-          text === 'view shopping cart' ||
-          text === 'shopping cart' ||
-          // CSS class matches
-          className.includes('add-to-cart') ||
-          className.includes('add-to-bag') ||
-          className.includes('ec-product-browser__button') ||
-          className.includes('form-control__button') ||
-          // URL matches
-          (href.includes('/cart') && !href.includes('add')) ||
-          (href.includes('#cart') || href.includes('#!/cart')) ||
-          (href.includes('checkout') && !href.includes('add'))
-        ) {
-          console.log('[Home JS] 🛒 Purchase button detected:', text || className);
-          return true;
-        }
-        
+          text.includes('add to bag') || text.includes('add to cart') || text.includes('add more') ||
+          text === 'go to checkout' || text === 'checkout' || text === 'view cart' ||
+          cls.includes('add-to-cart') || cls.includes('add-to-bag') || cls.includes('form-control__button') ||
+          href.includes('/cart') || href.includes('checkout')
+        ) return true;
         el = el.parentElement;
       }
       return false;
     }
 
-    // Watch for checkout button clicks - INTERCEPT AND BLOCK
-    function watchAddToBag() {
-      // Debounce - only fire once per click
-      let isTracking = false;
-
-      // INTERCEPT clicks on checkout/cart buttons - use capture phase to get it first
-      document.addEventListener('click', function(e) {
-        if (isTracking) return;
-
-        const target = e.target;
-        if (!target) return;
-
-        // Check if this is ANY purchase button (Add to Bag, Add More, Checkout, etc.)
-        if (isPurchaseElement(target)) {
-          console.log('[Home JS] 🛒 Purchase button clicked - opening in browser!');
-          
-          // BLOCK the navigation
-          e.preventDefault();
-          e.stopPropagation();
-          e.stopImmediatePropagation();
-          
-          isTracking = true;
-          
-          // Get the current URL - if we're on a product page, we'll open that
-          let currentUrl = window.location.href;
-          let productId = null;
-          let productUrl = null;
-          
-          // Try to extract product ID from current URL
-          // Ecwid URLs: #!/~/product/id=12345 or /product/Product-Name-p12345
-          const hashMatch = currentUrl.match(/product\/id=(\d+)/i);
-          const pathMatch = currentUrl.match(/-p(\d+)$/i);
-          
-          if (hashMatch) {
-            productId = hashMatch[1];
-          } else if (pathMatch) {
-            productId = pathMatch[1];
-          }
-          
-          // Try to get current product from Ecwid API
-          if (window.Ecwid && window.Ecwid.Cart && window.Ecwid.Cart.get) {
-            window.Ecwid.Cart.get(function(cart) {
-              let cartCount = cart && cart.items ? cart.items.length : 0;
-              let lastItem = cart && cart.items && cart.items.length > 0 ? cart.items[cart.items.length - 1] : null;
-              
-              // If we have a product ID from URL, use that
-              if (productId) {
-                productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
-                console.log('[Home JS] Opening product page:', productUrl);
-              } 
-              // Otherwise try to get the last added item
-              else if (lastItem && lastItem.product && lastItem.product.id) {
-                productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + lastItem.product.id;
-                console.log('[Home JS] Opening last added product:', productUrl);
-              }
-              // Fallback to store
-              else {
-                productUrl = 'https://greenhauscc.com/products';
-                console.log('[Home JS] Opening store');
-              }
-              
-              window.ReactNativeWebView.postMessage(JSON.stringify({ 
-                type: 'OPEN_EXTERNAL_CHECKOUT',
-                url: productUrl,
-                productId: productId || (lastItem ? lastItem.product.id : null),
-                productName: lastItem ? lastItem.product.name : null,
-                cartCount: cartCount
-              }));
-            });
-          } else {
-            // Ecwid API not available - use URL-based detection
-            if (productId) {
-              productUrl = 'https://greenhauscc.com/products#!/~/product/id=' + productId;
-            } else {
-              productUrl = 'https://greenhauscc.com/products';
-            }
-            
-            window.ReactNativeWebView.postMessage(JSON.stringify({ 
-              type: 'OPEN_EXTERNAL_CHECKOUT',
-              url: productUrl,
-              productId: productId,
-              cartCount: 0
-            }));
-          }
-          
-          // Also send analytics
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
-
-          // Reset after 3 seconds
-          setTimeout(function() {
-            isTracking = false;
-          }, 3000);
-          
-          return false;
-        }
-      }, true); // true = capture phase, fires before bubbling
-
-      // Intercept XMLHttpRequest to update cart count
-      const originalXHROpen = XMLHttpRequest.prototype.open;
-      const originalXHRSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalXHROpen.apply(this, arguments);
-      };
-
-      XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-          if (this.status >= 200 && this.status < 300) {
-            const url = this._url || '';
-            if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-              setTimeout(sendCartCount, 500);
-            }
-          }
-        });
-        return originalXHRSend.apply(this, arguments);
-      };
-
-      // Also intercept fetch requests as backup
-      const originalFetch = window.fetch;
-      window.fetch = function(...args) {
-        const promise = originalFetch.apply(this, args);
-        const url = args[0]?.toString() || '';
-
-        if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-          promise.then(response => {
-            if (response.ok) {
-              setTimeout(sendCartCount, 500);
-            }
-            return response;
-          }).catch(() => {});
-        }
-
-        return promise;
-      };
-
-      // Also watch for DOM mutations that might indicate cart update
-      const cartObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          // Check if badge was updated
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === 1) {
-              const badge = node.querySelector?.('.ec-cart-widget__count, .ec-minicart__count');
-              if (badge) {
-                sendCartCount();
-              }
-            }
-          });
-        });
-      });
-
-      // Observe the entire document for cart badge changes
-      const headerArea = document.querySelector('header') || document.body;
-      if (headerArea) {
-        cartObserver.observe(headerArea, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['class']
-        });
-      }
-    }
-
-    // Intercept hash changes ONLY for full cart page navigation
-    // NOT for cart popups or add-to-cart confirmations
-    let lastHash = window.location.hash;
-    let hashChangeBlocked = false;
-    
-    function checkHashChange() {
-      if (hashChangeBlocked) return;
-      
-      const currentHash = window.location.hash.toLowerCase();
-      if (currentHash !== lastHash) {
-        const oldHash = lastHash;
-        lastHash = currentHash;
+    // Intercept purchase button clicks
+    var clicking = false;
+    document.addEventListener('click', function(e) {
+      if (clicking) return;
+      if (isPurchaseElement(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        clicking = true;
         
-        // Only trigger for EXPLICIT cart PAGE navigation
-        // Ecwid cart page hash: #!/~/cart or #/~/cart
-        // NOT: product pages, popups, etc.
-        const isCartPageHash = (
-          currentHash === '#!/~/cart' ||
-          currentHash === '#/~/cart' ||
-          currentHash === '#!/cart' ||
-          currentHash.startsWith('#!/~/cart/') ||
-          currentHash.startsWith('#/~/cart/') ||
-          currentHash === '#!/~/checkout' ||
-          currentHash.startsWith('#!/~/checkout/')
-        );
+        // Get product URL from current page
+        var url = window.location.href;
+        var productId = null;
+        var m = url.match(/product\/id=(\d+)/i) || url.match(/-p(\d+)$/i);
+        if (m) productId = m[1];
         
-        // Skip if coming from a product page (adding to cart shows popup, not cart page)
-        const wasOnProduct = oldHash.includes('/product/') || oldHash.includes('#!/~/product');
+        var productUrl = productId ? 
+          'https://greenhauscc.com/products#!/~/product/id=' + productId : 
+          'https://greenhauscc.com/products';
         
-        if (isCartPageHash && !wasOnProduct) {
-          console.log('[Home JS] 🛒 Cart PAGE navigation detected - blocking:', currentHash);
-          
-          // Block cart/checkout navigation - just go back
-          // The click interceptor already handles opening external browser
-          hashChangeBlocked = true;
-          setTimeout(() => { hashChangeBlocked = false; }, 3000);
-          
-          try { history.back(); } catch(e) {}
-        } else {
-          console.log('[Home JS] Hash changed:', oldHash, '->', currentHash);
-        }
+        window.ReactNativeWebView.postMessage(JSON.stringify({ 
+          type: 'OPEN_EXTERNAL_CHECKOUT',
+          url: productUrl,
+          productId: productId
+        }));
+        
+        setTimeout(function() { clicking = false; }, 2000);
+        return false;
       }
-    }
-    
-    // Listen for hash changes
-    window.addEventListener('hashchange', checkHashChange);
+    }, true);
 
-    // Run immediately and on intervals
-    sendCartCount();
-    watchAddToBag();
-
-    // More aggressive initial cart count check (every 500ms for first 5 seconds)
-    let initialCheckCount = 0;
-    const initialCheck = setInterval(() => {
-      sendCartCount();
-      initialCheckCount++;
-      if (initialCheckCount >= 10) {
-        clearInterval(initialCheck);
-      }
-    }, 500);
-
-    setInterval(() => {
-      sendCartCount();
-    }, 2000);
-
-    // Watch for DOM changes
-    const observer = new MutationObserver(() => {
-      sendCartCount();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Run on load
+    init();
   })();
   true;
 `;
@@ -397,7 +150,6 @@ export default function HomeTab() {
         clearTimeout(loadingTimeoutRef.current);
       }
       loadingTimeoutRef.current = setTimeout(() => {
-        console.log('[Home] Loading timeout - showing retry button');
         setIsLoading(false);
         setRefreshing(false);
         setShowRetry(true);
