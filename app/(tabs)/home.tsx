@@ -526,9 +526,13 @@ export default function HomeTab() {
         androidLayerType="hardware"
         sharedCookiesEnabled={true}
         injectedJavaScriptBeforeContentLoaded={`
+          // Hide everything initially to prevent flash
+          document.documentElement.style.visibility = 'hidden';
           var style = document.createElement('style');
           style.textContent = \`${INJECTED_CSS}\`;
           (document.head || document.documentElement).appendChild(style);
+          // Show content after CSS is applied
+          setTimeout(function() { document.documentElement.style.visibility = 'visible'; }, 50);
           true;
         `}
         injectedJavaScript={INJECT_SCRIPT}
