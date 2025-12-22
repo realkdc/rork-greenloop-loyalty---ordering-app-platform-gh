@@ -342,8 +342,13 @@ export default function SearchTab() {
     
     if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
       console.log('[Browse] 🚫 Intercepting cart/checkout navigation:', url);
-      // Just block the navigation - the JS click handler should have already opened browser
-      // Don't open cart URL here as it will be empty
+      
+      // Open the store so user can browse and add to cart
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
+      }
+      openInExternalBrowser('https://greenhauscc.com/products');
+      
       return false;
     }
     
@@ -358,10 +363,13 @@ export default function SearchTab() {
     if (isCartOrCheckoutRoute(url)) {
       console.log('[Browse] Cart/checkout detected in navigation state:', url);
       
-      // On Android where purchase flow is disabled, just go back
-      // Don't open cart URL in browser as it will be empty
+      // On Android where purchase flow is disabled, open store and go back
       if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
-        console.log('[Browse] Going back - cart blocked on Android');
+        console.log('[Browse] Opening store in browser and going back');
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
+        }
+        openInExternalBrowser('https://greenhauscc.com/products');
         ref.current?.goBack();
         return;
       }
