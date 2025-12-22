@@ -316,9 +316,8 @@ export default function SearchTab() {
   return (
     <View style={styles.container}>
       {isLoading && !showRetry && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#5DB075" />
-          <Text style={styles.loadingText}>Loading products...</Text>
+        <View style={styles.loadingBar}>
+          <ActivityIndicator size="small" color="#5DB075" />
         </View>
       )}
       {showRetry && (
@@ -428,6 +427,17 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+  },
+  loadingBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 40,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 100,
   },
   loadingOverlay: {
     position: 'absolute',
