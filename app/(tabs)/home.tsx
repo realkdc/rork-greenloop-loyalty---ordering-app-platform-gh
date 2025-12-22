@@ -382,7 +382,6 @@ export default function HomeTab() {
 
   // Open URL in external browser (works in Expo Go via Linking)
   const openInExternalBrowser = useCallback(async (url: string) => {
-    console.log('[Home] Opening external browser:', url);
     
     try {
       // Use Chrome Custom Tabs for better UX
@@ -392,14 +391,10 @@ export default function HomeTab() {
         controlsColor: '#FFFFFF',
         showTitle: true,
       });
-      console.log('[Home] ✅ WebBrowser result:', result.type);
     } catch (error) {
-      console.log('[Home] WebBrowser failed, trying Linking:', error);
       try {
         await Linking.openURL(url);
-        console.log('[Home] ✅ Opened via Linking');
       } catch (linkError) {
-        console.log('[Home] ❌ Both methods failed:', linkError);
         Alert.alert(
           'Unable to Open Browser',
           'Please visit greenhauscc.com in your browser to complete your purchase.',
@@ -432,11 +427,9 @@ export default function HomeTab() {
     
     // On Android where purchase flow is disabled, intercept cart/checkout and open external browser
     if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
-      console.log('[Home] 🚫 Intercepting cart/checkout navigation:', url);
       
       // Use the last non-cart URL (the product page they were on)
       const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
-      console.log('[Home] Opening in browser:', urlToOpen);
       
       if (Platform.OS === 'android') {
         ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
@@ -460,13 +453,11 @@ export default function HomeTab() {
 
     // If navigated to cart page
     if (isCartOrCheckoutRoute(url)) {
-      console.log('[Home] Cart/checkout detected in navigation state:', url);
       
       // On Android where purchase flow is disabled, open the current page in browser
       if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
         // Use the last non-cart URL (the product page they were on)
         const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
-        console.log('[Home] Opening in browser:', urlToOpen);
         
         if (Platform.OS === 'android') {
           ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
@@ -488,7 +479,6 @@ export default function HomeTab() {
   };
 
   const handleRetry = () => {
-    console.log('[Home] Retry button pressed - reloading WebView');
     setShowRetry(false);
     setHasError(false);
     setIsLoading(true);
@@ -542,35 +532,13 @@ export default function HomeTab() {
         source={{ uri: 'https://greenhauscc.com/' }}
         style={styles.webview}
         originWhitelist={['*']}
-        allowsInlineMediaPlayback
-        mediaPlaybackRequiresUserAction={false}
-        allowFileAccess
-        allowUniversalAccessFromFileURLs
-        mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
-        sharedCookiesEnabled={true}
-        thirdPartyCookiesEnabled={true}
-        pullToRefreshEnabled={true}
-        androidHardwareAccelerationDisabled={false}
-        androidLayerType="hardware"
         cacheEnabled={true}
-        cacheMode="LOAD_DEFAULT"
+        cacheMode="LOAD_CACHE_ELSE_NETWORK"
+        androidLayerType="hardware"
+        sharedCookiesEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        injectedJavaScriptBeforeContentLoaded={`
-          (function() {
-            const style = document.createElement('style');
-            style.textContent = \`${INJECTED_CSS}\`;
-            if (document.head) {
-              document.head.appendChild(style);
-            } else {
-              document.addEventListener('DOMContentLoaded', function() {
-                document.head.appendChild(style);
-              });
-            }
-          })();
-          true;
-        `}
         onLoadStart={() => {
           setIsLoading(true);
           setShowRetry(false);
@@ -582,7 +550,6 @@ export default function HomeTab() {
             clearTimeout(loadingTimeoutRef.current);
             loadingTimeoutRef.current = null;
           }
-          ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
         onError={(syntheticEvent) => {
           const { nativeEvent } = syntheticEvent;
@@ -599,13 +566,10 @@ export default function HomeTab() {
               setCartCount(data.count);
             } else if (data.type === 'OPEN_EXTERNAL_CHECKOUT') {
               // Open external browser for checkout
-              console.log('[Home] 📱 Received OPEN_EXTERNAL_CHECKOUT message:', data);
               
               const url = data.url || 'https://greenhauscc.com/products';
               const productName = data.productName;
               
-              console.log('[Home] Opening URL:', url);
-              console.log('[Home] Product name:', productName);
               
               // Show helpful message telling user to re-add to cart
               if (Platform.OS === 'android') {
@@ -623,7 +587,6 @@ export default function HomeTab() {
               }
             }
           } catch (e) {
-            console.log('[Home] Error parsing message:', e);
           }
         }}
         renderLoading={() => (
