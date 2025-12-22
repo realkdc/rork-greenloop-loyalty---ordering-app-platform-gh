@@ -28,6 +28,43 @@ const INJECTED_CSS = `
   /* Add padding where header was */
   body { padding-top: 20px !important; }
 
+  /* Hide vape categories and products */
+  a[href*="/disposables"],
+  a[href*="/Disposables"],
+  a[href*="/cartridges"],
+  a[href*="/Cartridges"],
+  a[href*="disposable"],
+  a[href*="Disposable"],
+  a[href*="cartridge"],
+  a[href*="Cartridge"],
+  a[href*="veil"],
+  a[href*="Veil"],
+  a[href*="VEIL"],
+  a[href*="bar-pro"],
+  a[href*="Bar-Pro"],
+  a[aria-label*="Disposable"],
+  a[aria-label*="Cartridge"],
+  a[aria-label*="Veil"],
+  div:has(> a[href*="disposable"]),
+  div:has(> a[href*="Disposable"]),
+  div:has(> a[href*="cartridge"]),
+  div:has(> a[href*="Cartridge"]),
+  div:has(> a[href*="veil"]),
+  div:has(> a[href*="Veil"]),
+  .ec-grid__category-item:has(a[href*="disposable"]),
+  .ec-grid__category-item:has(a[href*="Disposable"]),
+  .ec-grid__category-item:has(a[href*="cartridge"]),
+  .ec-grid__category-item:has(a[href*="Cartridge"]) {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   /* Hide Toasted Tuesday vape promo tile */
   a[aria-label*="TOASTED TUESDAY"],
   a[aria-label*="Toasted Tuesday"],
