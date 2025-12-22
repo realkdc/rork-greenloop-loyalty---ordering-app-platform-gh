@@ -12,7 +12,7 @@ import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
-  /* Hide header, footer, and breadcrumbs only */
+  /* Hide header, footer, and breadcrumbs */
   header, .ins-header, .site-header,
   footer, .site-footer, .ec-footer,
   nav, .navigation, .site-nav,
@@ -24,41 +24,29 @@ const INJECTED_CSS = `
     padding-top: 20px !important;
   }
 
-  /* Hide vape categories and products */
-  a[href*="/disposables"],
-  a[href*="/Disposables"],
-  a[href*="/cartridges"],
-  a[href*="/Cartridges"],
-  a[href*="disposable"],
-  a[href*="Disposable"],
-  a[href*="cartridge"],
-  a[href*="Cartridge"],
+  /* Hide Disposables & Cartridges category by ID */
+  .grid-category--id-180876996,
+  .grid-category--id-186220324,
+  .grid-category--id-186221826 {
+    display: none !important;
+  }
+
+  /* Hide vape categories and products by URL/text patterns */
+  .grid-category:has(a[href*="Disposables"]),
+  .grid-category:has(a[href*="Cartridges"]),
+  .grid-category:has(a[href*="disposable"]),
+  .grid-category:has(a[href*="cartridge"]),
+  .grid-category:has(a[title*="Disposable"]),
+  .grid-category:has(a[title*="Cartridge"]),
+  a[href*="Disposables-"],
+  a[href*="Cartridges-"],
+  a[href*="-c180876996"],
+  a[href*="-c186220324"],
+  a[href*="-c186221826"],
   a[href*="veil"],
   a[href*="Veil"],
-  a[href*="VEIL"],
-  a[href*="bar-pro"],
-  a[href*="Bar-Pro"],
-  a[aria-label*="Disposable"],
-  a[aria-label*="Cartridge"],
-  a[aria-label*="Veil"],
-  div:has(> a[href*="disposable"]),
-  div:has(> a[href*="Disposable"]),
-  div:has(> a[href*="cartridge"]),
-  div:has(> a[href*="Cartridge"]),
-  div:has(> a[href*="veil"]),
-  div:has(> a[href*="Veil"]),
-  .ec-grid__category-item:has(a[href*="disposable"]),
-  .ec-grid__category-item:has(a[href*="Disposable"]),
-  .ec-grid__category-item:has(a[href*="cartridge"]),
-  .ec-grid__category-item:has(a[href*="Cartridge"]) {
+  a[href*="bar-pro"] {
     display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
   }
 `;
 
