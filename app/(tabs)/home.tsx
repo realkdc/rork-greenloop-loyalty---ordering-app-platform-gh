@@ -72,19 +72,50 @@ const INJECT_SCRIPT = `
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Check if element is a purchase button
+    // Check if element is a purchase button (Add to Bag, Add More, Checkout, etc.)
     function isPurchaseElement(el) {
       if (!el) return false;
-      for (var i = 0; i < 3 && el; i++) {
-        var text = (el.innerText || '').toLowerCase();
+      
+      // Check the clicked element and parents
+      for (var i = 0; i < 5 && el; i++) {
+        var text = (el.innerText || el.textContent || '').toLowerCase().trim();
         var cls = (el.className || '').toLowerCase();
-        var href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
+        var href = (el.getAttribute ? el.getAttribute('href') : '') || '';
+        var tag = (el.tagName || '').toLowerCase();
+        
+        // Match by text content
         if (
-          text.includes('add to bag') || text.includes('add to cart') || text.includes('add more') ||
-          text === 'go to checkout' || text === 'checkout' || text === 'view cart' ||
-          cls.includes('add-to-cart') || cls.includes('add-to-bag') || cls.includes('form-control__button') ||
-          href.includes('/cart') || href.includes('checkout')
-        ) return true;
+          text.indexOf('add to bag') !== -1 ||
+          text.indexOf('add to cart') !== -1 ||
+          text.indexOf('add more') !== -1 ||
+          text.indexOf('add item') !== -1 ||
+          text.indexOf('buy now') !== -1 ||
+          text === 'add' ||
+          text.indexOf('go to checkout') !== -1 ||
+          text.indexOf('proceed to checkout') !== -1 ||
+          text === 'checkout' ||
+          text.indexOf('view cart') !== -1
+        ) {
+          return true;
+        }
+        
+        // Match by Ecwid class names
+        if (
+          cls.indexOf('form-control__button') !== -1 ||
+          cls.indexOf('ec-cart') !== -1 ||
+          cls.indexOf('add-to-cart') !== -1 ||
+          cls.indexOf('add-to-bag') !== -1 ||
+          cls.indexOf('details-product-purchase__add-to-bag') !== -1 ||
+          cls.indexOf('product-details__product-price-addtobag') !== -1
+        ) {
+          return true;
+        }
+        
+        // Match by href
+        if (href.indexOf('/cart') !== -1 || href.indexOf('checkout') !== -1) {
+          return true;
+        }
+        
         el = el.parentElement;
       }
       return false;
@@ -94,7 +125,11 @@ const INJECT_SCRIPT = `
     var clicking = false;
     document.addEventListener('click', function(e) {
       if (clicking) return;
-      if (isPurchaseElement(e.target)) {
+      
+      var target = e.target;
+      if (!target) return;
+      
+      if (isPurchaseElement(target)) {
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -103,12 +138,12 @@ const INJECT_SCRIPT = `
         // Get product URL from current page
         var url = window.location.href;
         var productId = null;
-        var m = url.match(/product\/id=(\d+)/i) || url.match(/-p(\d+)$/i);
+        var m = url.match(/product\\/id=(\\d+)/i) || url.match(/-p(\\d+)$/i) || url.match(/product\\/(\\d+)/i);
         if (m) productId = m[1];
         
         var productUrl = productId ? 
           'https://greenhauscc.com/products#!/~/product/id=' + productId : 
-          'https://greenhauscc.com/products';
+          url.indexOf('greenhauscc.com') !== -1 ? url : 'https://greenhauscc.com/products';
         
         window.ReactNativeWebView.postMessage(JSON.stringify({ 
           type: 'OPEN_EXTERNAL_CHECKOUT',
@@ -120,9 +155,6 @@ const INJECT_SCRIPT = `
         return false;
       }
     }, true);
-
-    // Run on load
-    init();
   })();
   true;
 `;
@@ -153,7 +185,7 @@ export default function HomeTab() {
         setIsLoading(false);
         setRefreshing(false);
         setShowRetry(true);
-      }, 25000); // 25 seconds before showing retry
+      }, 15000); // 15 seconds before showing retry
     } else {
       setShowRetry(false);
     }
