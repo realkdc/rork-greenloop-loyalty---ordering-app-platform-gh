@@ -314,6 +314,13 @@ export default function SearchTab() {
     }
   }, []);
 
+  // Pull to refresh handler
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    ref.current?.reload();
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
+
   // Check if URL is a cart/checkout route
   const isCartOrCheckoutRoute = useCallback((url: string) => {
     const normalizedUrl = url.toLowerCase();
@@ -415,6 +422,8 @@ export default function SearchTab() {
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         pullToRefreshEnabled={true}
+        onRefresh={onRefresh}
+        refreshing={refreshing}
         androidHardwareAccelerationDisabled={false}
         androidLayerType="hardware"
         cacheEnabled={true}
