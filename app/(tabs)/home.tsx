@@ -86,24 +86,13 @@ const INJECT_SCRIPT = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
     }
 
-    // Check if element or its parents match CHECKOUT patterns (NOT add to cart!)
-    function isCheckoutElement(element) {
+    // Check if element or its parents match ANY purchase button (Add to Bag, Add More, Checkout, etc.)
+    // On Android, ALL purchase actions should open external browser
+    function isPurchaseElement(element) {
       if (!element) return false;
       
-      // Get the DIRECT text of the clicked element (not all children text)
+      // Get the DIRECT text of the clicked element
       const directText = (element.innerText || element.textContent || '').toLowerCase().trim();
-      
-      // EXCLUDE: Add to bag/cart buttons - these should work normally in the app
-      if (
-        directText.includes('add to bag') ||
-        directText.includes('add to cart') ||
-        directText.includes('add item') ||
-        directText === 'add' ||
-        directText.includes('buy now')
-      ) {
-        console.log('[Home JS] ✅ Add to cart button - allowing normal behavior');
-        return false;
-      }
       
       // Check this element and up to 3 parent levels
       let el = element;
@@ -112,31 +101,33 @@ const INJECT_SCRIPT = `
         const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
         const className = (el.className || '').toLowerCase();
         
-        // EXCLUDE add to cart buttons at any level
+        // Match ALL purchase-related buttons
         if (
+          // Add to cart/bag buttons
           text.includes('add to bag') ||
           text.includes('add to cart') ||
-          className.includes('add-to-cart') ||
-          className.includes('add-to-bag') ||
-          className.includes('ec-product-browser__button') // Ecwid's add to cart button
-        ) {
-          console.log('[Home JS] ✅ Add to cart element detected - allowing normal behavior');
-          return false;
-        }
-        
-        // ONLY match explicit checkout/view cart actions
-        if (
+          text.includes('add more') ||
+          text.includes('add item') ||
+          text === 'add' ||
+          text.includes('buy now') ||
+          // Checkout buttons
           text === 'go to checkout' ||
           text === 'proceed to checkout' ||
           text === 'checkout' ||
           text === 'view cart' ||
           text === 'view shopping cart' ||
           text === 'shopping cart' ||
+          // CSS class matches
+          className.includes('add-to-cart') ||
+          className.includes('add-to-bag') ||
+          className.includes('ec-product-browser__button') ||
+          className.includes('form-control__button') ||
+          // URL matches
           (href.includes('/cart') && !href.includes('add')) ||
           (href.includes('#cart') || href.includes('#!/cart')) ||
           (href.includes('checkout') && !href.includes('add'))
         ) {
-          console.log('[Home JS] 🛒 Checkout/view cart button detected:', text);
+          console.log('[Home JS] 🛒 Purchase button detected:', text || className);
           return true;
         }
         
@@ -157,9 +148,9 @@ const INJECT_SCRIPT = `
         const target = e.target;
         if (!target) return;
 
-        // Check if this is a checkout/cart button
-        if (isCheckoutElement(target)) {
-          console.log('[Home JS] 🛒 Checkout/cart button clicked - intercepting!');
+        // Check if this is ANY purchase button (Add to Bag, Add More, Checkout, etc.)
+        if (isPurchaseElement(target)) {
+          console.log('[Home JS] 🛒 Purchase button clicked - opening in browser!');
           
           // BLOCK the navigation
           e.preventDefault();
@@ -410,7 +401,7 @@ export default function HomeTab() {
         setIsLoading(false);
         setRefreshing(false);
         setShowRetry(true);
-      }, 10000);
+      }, 25000); // 25 seconds before showing retry
     } else {
       setShowRetry(false);
     }

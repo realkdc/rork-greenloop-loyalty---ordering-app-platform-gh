@@ -66,24 +66,13 @@ const INJECT_SCRIPT = `
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
     }
 
-    // Check if element matches CHECKOUT patterns (NOT add to cart!)
-    function isCheckoutElement(element) {
+    // Check if element or its parents match ANY purchase button (Add to Bag, Add More, Checkout, etc.)
+    // On Android, ALL purchase actions should open external browser
+    function isPurchaseElement(element) {
       if (!element) return false;
       
       // Get the DIRECT text of the clicked element
       const directText = (element.innerText || element.textContent || '').toLowerCase().trim();
-      
-      // EXCLUDE: Add to bag/cart buttons - these should work normally
-      if (
-        directText.includes('add to bag') ||
-        directText.includes('add to cart') ||
-        directText.includes('add item') ||
-        directText === 'add' ||
-        directText.includes('buy now')
-      ) {
-        console.log('[Browse JS] ✅ Add to cart button - allowing normal behavior');
-        return false;
-      }
       
       // Check this element and up to 3 parent levels
       let el = element;
@@ -92,31 +81,33 @@ const INJECT_SCRIPT = `
         const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
         const className = (el.className || '').toLowerCase();
         
-        // EXCLUDE add to cart buttons at any level
+        // Match ALL purchase-related buttons
         if (
+          // Add to cart/bag buttons
           text.includes('add to bag') ||
           text.includes('add to cart') ||
-          className.includes('add-to-cart') ||
-          className.includes('add-to-bag') ||
-          className.includes('ec-product-browser__button')
-        ) {
-          console.log('[Browse JS] ✅ Add to cart element - allowing normal behavior');
-          return false;
-        }
-        
-        // ONLY match explicit checkout/view cart actions
-        if (
+          text.includes('add more') ||
+          text.includes('add item') ||
+          text === 'add' ||
+          text.includes('buy now') ||
+          // Checkout buttons
           text === 'go to checkout' ||
           text === 'proceed to checkout' ||
           text === 'checkout' ||
           text === 'view cart' ||
           text === 'view shopping cart' ||
           text === 'shopping cart' ||
+          // CSS class matches
+          className.includes('add-to-cart') ||
+          className.includes('add-to-bag') ||
+          className.includes('ec-product-browser__button') ||
+          className.includes('form-control__button') ||
+          // URL matches
           (href.includes('/cart') && !href.includes('add')) ||
           (href.includes('#cart') || href.includes('#!/cart')) ||
           (href.includes('checkout') && !href.includes('add'))
         ) {
-          console.log('[Browse JS] 🛒 Checkout/view cart button detected:', text);
+          console.log('[Browse JS] 🛒 Purchase button detected:', text || className);
           return true;
         }
         
@@ -133,8 +124,8 @@ const INJECT_SCRIPT = `
       const target = e.target;
       if (!target) return;
 
-      if (isCheckoutElement(target)) {
-        console.log('[Browse JS] 🛒 Checkout/cart button clicked - intercepting!');
+      if (isPurchaseElement(target)) {
+        console.log('[Browse JS] 🛒 Purchase button clicked - opening in browser!');
         
         e.preventDefault();
         e.stopPropagation();
@@ -273,7 +264,7 @@ export default function SearchTab() {
         setIsLoading(false);
         setRefreshing(false);
         setShowRetry(true);
-      }, 10000);
+      }, 25000); // 25 seconds before showing retry
     } else {
       setShowRetry(false);
     }
