@@ -3,7 +3,6 @@ import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Platform, 
 import { WebView } from "react-native-webview";
 import type { WebViewNavigation } from "react-native-webview";
 import * as WebBrowser from "expo-web-browser";
-import CookieManager from "@react-native-cookies/cookies";
 import { webviewRefs } from "./_layout";
 import { useRouter } from "expo-router";
 import { useApp } from "@/contexts/AppContext";
@@ -247,11 +246,8 @@ const INJECT_SCRIPT = `
           hashChangeBlocked = true;
           setTimeout(() => { hashChangeBlocked = false; }, 3000);
           
-          window.ReactNativeWebView.postMessage(JSON.stringify({ 
-            type: 'OPEN_EXTERNAL_CHECKOUT',
-            url: 'https://greenhauscc.com/products/cart'
-          }));
-          
+          // Just block cart navigation - don't open browser
+          // The click interceptor already handles opening the product page
           try { history.back(); } catch(e) {}
         }
       }
@@ -301,43 +297,12 @@ export default function SearchTab() {
     };
   }, [isLoading]);
 
-  // Sync WebView cookies to native cookie store before opening browser
-  const syncCookiesToBrowser = useCallback(async () => {
-    try {
-      console.log('[Browse] 🍪 Syncing cookies from WebView to browser...');
-      
-      // Get all cookies from the WebView for greenhauscc.com
-      const cookies = await CookieManager.get('https://greenhauscc.com');
-      console.log('[Browse] 🍪 Found cookies:', Object.keys(cookies));
-      
-      // Also get cookies from ecwid.com
-      const ecwidCookies = await CookieManager.get('https://app.ecwid.com');
-      console.log('[Browse] 🍪 Found Ecwid cookies:', Object.keys(ecwidCookies));
-      
-      // Flush cookies to ensure they're synced to the native store
-      await CookieManager.flush();
-      console.log('[Browse] 🍪 Cookies flushed to native store');
-      
-      return true;
-    } catch (error) {
-      console.log('[Browse] 🍪 Cookie sync error:', error);
-      return false;
-    }
-  }, []);
-
-  // Open URL in external browser using Chrome Custom Tabs with cookie sync
-  const openInExternalBrowser = useCallback(async (url: string, cartCount: number = 0) => {
+  // Open URL in external browser
+  const openInExternalBrowser = useCallback(async (url: string) => {
     console.log('[Browse] Opening external browser:', url);
     
-    if (Platform.OS === 'android') {
-      ToastAndroid.show('Syncing cart to browser...', ToastAndroid.SHORT);
-    }
-    
-    // IMPORTANT: Sync cookies from WebView to native store FIRST
-    await syncCookiesToBrowser();
-    
     try {
-      // Use Chrome Custom Tabs - they share cookies with Chrome browser
+      // Use Chrome Custom Tabs for better UX
       const result = await WebBrowser.openBrowserAsync(url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
         toolbarColor: '#1E4D3A',
@@ -359,7 +324,7 @@ export default function SearchTab() {
         );
       }
     }
-  }, [syncCookiesToBrowser]);
+  }, []);
 
   // Check if URL is a cart/checkout route
   const isCartOrCheckoutRoute = useCallback((url: string) => {
@@ -466,6 +431,20 @@ export default function SearchTab() {
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
         injectedJavaScript={INJECT_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={`
+          (function() {
+            const style = document.createElement('style');
+            style.textContent = \`${INJECTED_CSS}\`;
+            if (document.head) {
+              document.head.appendChild(style);
+            } else {
+              document.addEventListener('DOMContentLoaded', function() {
+                document.head.appendChild(style);
+              });
+            }
+          })();
+          true;
+        `}
         onLoadStart={() => {
           console.log('[Search] Load started');
           setIsLoading(true);
@@ -513,21 +492,18 @@ export default function SearchTab() {
               
               const url = data.url || 'https://greenhauscc.com/products';
               const productName = data.productName;
-              const cartCount = data.cartCount || 0;
               
               console.log('[Browse] Opening URL:', url);
               
               if (Platform.OS === 'android') {
                 if (productName) {
-                  ToastAndroid.show(`Opening "${productName}" - add to cart in browser`, ToastAndroid.LONG);
-                } else if (cartCount > 0) {
-                  ToastAndroid.show(`Opening store - add items to cart in browser`, ToastAndroid.LONG);
+                  ToastAndroid.show(`Opening "${productName}" in browser`, ToastAndroid.SHORT);
                 } else {
-                  ToastAndroid.show('Opening store...', ToastAndroid.SHORT);
+                  ToastAndroid.show('Opening in browser...', ToastAndroid.SHORT);
                 }
               }
               
-              openInExternalBrowser(url, cartCount);
+              openInExternalBrowser(url);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);

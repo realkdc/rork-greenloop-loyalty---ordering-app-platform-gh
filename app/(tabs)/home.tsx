@@ -359,20 +359,16 @@ const INJECT_SCRIPT = `
         const wasOnProduct = oldHash.includes('/product/') || oldHash.includes('#!/~/product');
         
         if (isCartPageHash && !wasOnProduct) {
-          console.log('[Home JS] 🛒 Cart PAGE navigation detected:', currentHash);
+          console.log('[Home JS] 🛒 Cart PAGE navigation detected - blocking:', currentHash);
           
-          // Block further triggers for 3 seconds
+          // Block cart/checkout navigation - just go back
+          // The click interceptor already handles opening external browser
           hashChangeBlocked = true;
           setTimeout(() => { hashChangeBlocked = false; }, 3000);
           
-          window.ReactNativeWebView.postMessage(JSON.stringify({ 
-            type: 'OPEN_EXTERNAL_CHECKOUT',
-            url: 'https://greenhauscc.com/products/cart'
-          }));
-          
           try { history.back(); } catch(e) {}
         } else {
-          console.log('[Home JS] Hash changed (not cart page):', oldHash, '->', currentHash);
+          console.log('[Home JS] Hash changed:', oldHash, '->', currentHash);
         }
       }
     }
@@ -603,57 +599,20 @@ export default function HomeTab() {
   }, []);
 
   // Open URL in external browser (works in Expo Go via Linking)
-  // Sync WebView cookies to native cookie store before opening browser
-  const syncCookiesToBrowser = useCallback(async () => {
-    try {
-      console.log('[Home] 🍪 Syncing cookies from WebView to browser...');
-      
-      // Get all cookies from the WebView for greenhauscc.com
-      const cookies = await CookieManager.get('https://greenhauscc.com');
-      console.log('[Home] 🍪 Found cookies:', Object.keys(cookies));
-      
-      // Also get cookies from ecwid.com (Ecwid stores cart there)
-      const ecwidCookies = await CookieManager.get('https://app.ecwid.com');
-      console.log('[Home] 🍪 Found Ecwid cookies:', Object.keys(ecwidCookies));
-      
-      // Flush cookies to ensure they're synced to the native store
-      // This is important for Chrome Custom Tabs to pick them up
-      await CookieManager.flush();
-      console.log('[Home] 🍪 Cookies flushed to native store');
-      
-      return true;
-    } catch (error) {
-      console.log('[Home] 🍪 Cookie sync error:', error);
-      return false;
-    }
-  }, []);
-
-  const openInExternalBrowser = useCallback(async (url: string, cartCount: number = 0) => {
+  const openInExternalBrowser = useCallback(async (url: string) => {
     console.log('[Home] Opening external browser:', url);
     
-    // Show helpful message
-    if (Platform.OS === 'android') {
-      ToastAndroid.show('Syncing cart to browser...', ToastAndroid.SHORT);
-    }
-    
-    // IMPORTANT: Sync cookies from WebView to native store FIRST
-    await syncCookiesToBrowser();
-    
     try {
-      // Use Chrome Custom Tabs - they share cookies with Chrome browser
-      // After syncing, Chrome Custom Tabs should have the same session
+      // Use Chrome Custom Tabs for better UX
       const result = await WebBrowser.openBrowserAsync(url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
         toolbarColor: '#1E4D3A',
         controlsColor: '#FFFFFF',
         showTitle: true,
-        // On Android, Chrome Custom Tabs shares cookies with Chrome
-        // The cookie sync above should make the cart available
       });
       console.log('[Home] ✅ WebBrowser result:', result.type);
     } catch (error) {
       console.log('[Home] WebBrowser failed, trying Linking:', error);
-      // Fallback to Linking
       try {
         await Linking.openURL(url);
         console.log('[Home] ✅ Opened via Linking');
@@ -666,7 +625,7 @@ export default function HomeTab() {
         );
       }
     }
-  }, [syncCookiesToBrowser]);
+  }, []);
 
   // Check if URL is a cart/checkout route
   const isCartOrCheckoutRoute = useCallback((url: string) => {
@@ -802,6 +761,20 @@ export default function HomeTab() {
         cacheEnabled={true}
         cacheMode="LOAD_DEFAULT"
         injectedJavaScript={INJECT_SCRIPT}
+        injectedJavaScriptBeforeContentLoaded={`
+          (function() {
+            const style = document.createElement('style');
+            style.textContent = \`${INJECTED_CSS}\`;
+            if (document.head) {
+              document.head.appendChild(style);
+            } else {
+              document.addEventListener('DOMContentLoaded', function() {
+                document.head.appendChild(style);
+              });
+            }
+          })();
+          true;
+        `}
         onLoadStart={() => {
           setIsLoading(true);
           setShowRetry(false);
@@ -834,24 +807,20 @@ export default function HomeTab() {
               
               const url = data.url || 'https://greenhauscc.com/products';
               const productName = data.productName;
-              const cartCount = data.cartCount || 0;
               
               console.log('[Home] Opening URL:', url);
               console.log('[Home] Product name:', productName);
-              console.log('[Home] Cart count in app:', cartCount);
               
-              // Show appropriate message
+              // Show message
               if (Platform.OS === 'android') {
                 if (productName) {
-                  ToastAndroid.show(`Opening "${productName}" - add to cart in browser`, ToastAndroid.LONG);
-                } else if (cartCount > 0) {
-                  ToastAndroid.show(`Opening store - add items to cart in browser to checkout`, ToastAndroid.LONG);
+                  ToastAndroid.show(`Opening "${productName}" in browser`, ToastAndroid.SHORT);
                 } else {
-                  ToastAndroid.show('Opening store...', ToastAndroid.SHORT);
+                  ToastAndroid.show('Opening in browser...', ToastAndroid.SHORT);
                 }
               }
               
-              openInExternalBrowser(url, cartCount);
+              openInExternalBrowser(url);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
