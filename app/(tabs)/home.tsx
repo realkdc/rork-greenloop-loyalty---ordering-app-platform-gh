@@ -189,31 +189,18 @@ export default function HomeTab() {
   const [currentWebViewUrl, setCurrentWebViewUrl] = useState('https://greenhauscc.com/');
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Force hide spinner after 10 seconds if WebView is stuck
-  // Auto-retry counter to prevent infinite loops
-  const retryCountRef = useRef(0);
-  
+  // Only show retry after very long load (30 seconds)
   useEffect(() => {
     if (isLoading && !hasError) {
       if (loadingTimeoutRef.current) {
         clearTimeout(loadingTimeoutRef.current);
       }
       loadingTimeoutRef.current = setTimeout(() => {
-        // Auto-retry up to 2 times before showing manual retry button
-        if (retryCountRef.current < 2) {
-          retryCountRef.current++;
-          ref.current?.reload();
-        } else {
-          setIsLoading(false);
-          setRefreshing(false);
-          setShowRetry(true);
-        }
-      }, 8000); // 8 seconds before auto-retry
+        setIsLoading(false);
+        setShowRetry(true);
+      }, 30000);
     } else {
       setShowRetry(false);
-      if (!isLoading) {
-        retryCountRef.current = 0; // Reset retry counter on successful load
-      }
     }
 
     return () => {
