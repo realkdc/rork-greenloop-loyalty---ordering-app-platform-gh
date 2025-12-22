@@ -12,18 +12,18 @@ import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
-  /* Hide header, footer, breadcrumbs, filters, and sort */
+  /* Hide header, footer, and breadcrumbs */
   header, .ins-header, .site-header,
   footer, .site-footer, .ec-footer,
   nav, .navigation, .site-nav,
-  .breadcrumbs, .ec-breadcrumbs,
-  .ec-filters, .ec-filters__sortby, .ec-sort,
-  .filters, .filters-area, .product-filters,
-  .sorting, .sorting-filters, .sort-by,
-  .ec-filters__body, .ec-filters__wrap,
-  .grid__filter, .grid__sort,
-  [class*="filter"], [class*="sortby"],
-  .ec-pager, .ec-pager__count {
+  .breadcrumbs, .ec-breadcrumbs {
+    display: none !important;
+  }
+
+  /* Hide sort by dropdown */
+  .ec-filters__sortby,
+  .grid__sort,
+  .sort-by-button {
     display: none !important;
   }
 
