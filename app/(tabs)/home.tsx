@@ -525,6 +525,12 @@ export default function HomeTab() {
         cacheMode="LOAD_CACHE_ELSE_NETWORK"
         androidLayerType="hardware"
         sharedCookiesEnabled={true}
+        injectedJavaScriptBeforeContentLoaded={`
+          var style = document.createElement('style');
+          style.textContent = \`${INJECTED_CSS}\`;
+          (document.head || document.documentElement).appendChild(style);
+          true;
+        `}
         injectedJavaScript={INJECT_SCRIPT}
         onLoadStart={() => {
           setIsLoading(true);
