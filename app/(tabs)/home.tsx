@@ -91,6 +91,66 @@ const INJECT_SCRIPT = `
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
+    // Hide vape categories by finding elements with matching text
+    function hideVapeContent() {
+      const vapeKeywords = ['disposable', 'cartridge', 'veil', 'bar pro', 'bar-pro', 'vape', 'toasted tuesday'];
+      
+      // Hide any links or elements containing vape-related text
+      document.querySelectorAll('a, div, span, h1, h2, h3, h4, h5, h6, p, li').forEach(function(el) {
+        const text = (el.textContent || '').toLowerCase();
+        const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
+        
+        for (let i = 0; i < vapeKeywords.length; i++) {
+          if (text.includes(vapeKeywords[i]) || href.includes(vapeKeywords[i])) {
+            // Find the category tile container and hide it
+            let parent = el;
+            for (let j = 0; j < 5; j++) {
+              if (parent && parent.parentElement) {
+                const className = (parent.className || '').toLowerCase();
+                // If this looks like a category tile or grid item, hide it
+                if (className.includes('category') || className.includes('grid') || className.includes('tile') || className.includes('card') || className.includes('item')) {
+                  parent.style.display = 'none';
+                  parent.style.visibility = 'hidden';
+                  parent.style.height = '0';
+                  parent.style.overflow = 'hidden';
+                  break;
+                }
+                parent = parent.parentElement;
+              }
+            }
+            // Also hide the element itself if it's a link
+            if (el.tagName === 'A') {
+              el.style.display = 'none';
+              el.style.visibility = 'hidden';
+            }
+            break;
+          }
+        }
+      });
+      
+      // Hide header and footer
+      document.querySelectorAll('header, footer, nav, .site-header, .site-footer, .ins-header, .ec-footer, .navigation, .breadcrumbs, .ec-breadcrumbs').forEach(function(el) {
+        el.style.display = 'none';
+      });
+    }
+    
+    // Run immediately
+    hideVapeContent();
+    
+    // Run again after DOM changes (for dynamic content)
+    const observer = new MutationObserver(function() {
+      hideVapeContent();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    // Also run periodically for first 10 seconds
+    let hideCount = 0;
+    const hideInterval = setInterval(function() {
+      hideVapeContent();
+      hideCount++;
+      if (hideCount >= 20) clearInterval(hideInterval);
+    }, 500);
+
     // Send cart count to React Native
     function sendCartCount() {
       let count = 0;
@@ -772,6 +832,40 @@ export default function HomeTab() {
                 document.head.appendChild(style);
               });
             }
+            
+            // Early hiding function
+            function hideVapeContent() {
+              const vapeKeywords = ['disposable', 'cartridge', 'veil', 'bar pro', 'bar-pro', 'vape', 'toasted tuesday'];
+              document.querySelectorAll('a, div, span').forEach(function(el) {
+                const text = (el.textContent || '').toLowerCase();
+                const href = (el.getAttribute && el.getAttribute('href') || '').toLowerCase();
+                for (let i = 0; i < vapeKeywords.length; i++) {
+                  if (text.includes(vapeKeywords[i]) || href.includes(vapeKeywords[i])) {
+                    let parent = el;
+                    for (let j = 0; j < 5; j++) {
+                      if (parent && parent.parentElement) {
+                        const className = (parent.className || '').toLowerCase();
+                        if (className.includes('category') || className.includes('grid') || className.includes('tile') || className.includes('card') || className.includes('item')) {
+                          parent.style.display = 'none';
+                          break;
+                        }
+                        parent = parent.parentElement;
+                      }
+                    }
+                    if (el.tagName === 'A') el.style.display = 'none';
+                    break;
+                  }
+                }
+              });
+              document.querySelectorAll('header, footer, nav').forEach(function(el) {
+                el.style.display = 'none';
+              });
+            }
+            
+            document.addEventListener('DOMContentLoaded', hideVapeContent);
+            setTimeout(hideVapeContent, 100);
+            setTimeout(hideVapeContent, 500);
+            setTimeout(hideVapeContent, 1000);
           })();
           true;
         `}
