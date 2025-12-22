@@ -259,6 +259,7 @@ export default function SearchTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
+  const [currentWebViewUrl, setCurrentWebViewUrl] = useState('https://greenhauscc.com/products');
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Force hide spinner after 10 seconds if WebView is stuck
@@ -343,33 +344,44 @@ export default function SearchTab() {
     if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
       console.log('[Browse] 🚫 Intercepting cart/checkout navigation:', url);
       
-      // Open the store so user can browse and add to cart
+      // Use the last non-cart URL (the product page they were on)
+      const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
+      console.log('[Browse] Opening in browser:', urlToOpen);
+      
       if (Platform.OS === 'android') {
-        ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
+        ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
       }
-      openInExternalBrowser('https://greenhauscc.com/products');
+      openInExternalBrowser(urlToOpen);
       
       return false;
     }
     
     return true;
-  }, [isCartOrCheckoutRoute, openInExternalBrowser]);
+  }, [isCartOrCheckoutRoute, openInExternalBrowser, currentWebViewUrl]);
 
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
     const platformConfig = getPlatformConfig();
 
+    // Track current URL for use when opening external browser
+    if (url && !isCartOrCheckoutRoute(url)) {
+      setCurrentWebViewUrl(url);
+    }
+
     // If navigated to cart page
     if (isCartOrCheckoutRoute(url)) {
       console.log('[Browse] Cart/checkout detected in navigation state:', url);
       
-      // On Android where purchase flow is disabled, open store and go back
+      // On Android where purchase flow is disabled, open the current page in browser
       if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
-        console.log('[Browse] Opening store in browser and going back');
+        // Use the last non-cart URL (the product page they were on)
+        const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
+        console.log('[Browse] Opening in browser:', urlToOpen);
+        
         if (Platform.OS === 'android') {
-          ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
+          ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
         }
-        openInExternalBrowser('https://greenhauscc.com/products');
+        openInExternalBrowser(urlToOpen);
         ref.current?.goBack();
         return;
       }
