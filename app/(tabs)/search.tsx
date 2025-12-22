@@ -442,8 +442,6 @@ export default function SearchTab() {
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         pullToRefreshEnabled={true}
-        onRefresh={onRefresh}
-        refreshing={refreshing}
         androidHardwareAccelerationDisabled={false}
         androidLayerType="hardware"
         cacheEnabled={true}

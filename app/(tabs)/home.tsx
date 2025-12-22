@@ -751,8 +751,6 @@ export default function HomeTab() {
         sharedCookiesEnabled={true}
         thirdPartyCookiesEnabled={true}
         pullToRefreshEnabled={true}
-        onRefresh={onRefresh}
-        refreshing={refreshing}
         androidHardwareAccelerationDisabled={false}
         androidLayerType="hardware"
         cacheEnabled={true}
