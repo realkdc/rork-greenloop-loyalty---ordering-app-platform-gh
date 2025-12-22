@@ -631,12 +631,8 @@ export default function HomeTab() {
     // On Android where purchase flow is disabled, intercept cart/checkout and open external browser
     if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
       console.log('[Home] 🚫 Intercepting cart/checkout navigation:', url);
-      console.log('[Home] Opening external browser instead...');
-      
-      // Open external browser
-      openInExternalBrowser('https://greenhauscc.com/products/cart');
-      
-      // Block the in-app navigation
+      // Just block the navigation - the JS click handler should have already opened browser
+      // Don't open cart URL here as it will be empty
       return false;
     }
     
@@ -651,11 +647,10 @@ export default function HomeTab() {
     if (isCartOrCheckoutRoute(url)) {
       console.log('[Home] Cart/checkout detected in navigation state:', url);
       
-      // On Android where purchase flow is disabled, open external browser
+      // On Android where purchase flow is disabled, just go back
+      // Don't open cart URL in browser as it will be empty
       if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
-        console.log('[Home] Opening external browser and going back...');
-        openInExternalBrowser('https://greenhauscc.com/products/cart');
-        // Navigate back to prevent getting stuck on cart page
+        console.log('[Home] Going back - cart blocked on Android');
         ref.current?.goBack();
         return;
       }
@@ -791,12 +786,12 @@ export default function HomeTab() {
               console.log('[Home] Opening URL:', url);
               console.log('[Home] Product name:', productName);
               
-              // Show message
+              // Show helpful message telling user to re-add to cart
               if (Platform.OS === 'android') {
                 if (productName) {
-                  ToastAndroid.show(`Opening "${productName}" in browser`, ToastAndroid.SHORT);
+                  ToastAndroid.show(`Opening "${productName}" - please add to cart in browser to checkout`, ToastAndroid.LONG);
                 } else {
-                  ToastAndroid.show('Opening in browser...', ToastAndroid.SHORT);
+                  ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
                 }
               }
               

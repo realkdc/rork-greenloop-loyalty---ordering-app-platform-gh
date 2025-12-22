@@ -335,7 +335,8 @@ export default function SearchTab() {
     
     if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
       console.log('[Browse] 🚫 Intercepting cart/checkout navigation:', url);
-      openInExternalBrowser('https://greenhauscc.com/products/cart');
+      // Just block the navigation - the JS click handler should have already opened browser
+      // Don't open cart URL here as it will be empty
       return false;
     }
     
@@ -350,10 +351,10 @@ export default function SearchTab() {
     if (isCartOrCheckoutRoute(url)) {
       console.log('[Browse] Cart/checkout detected in navigation state:', url);
       
-      // On Android where purchase flow is disabled, open external browser
+      // On Android where purchase flow is disabled, just go back
+      // Don't open cart URL in browser as it will be empty
       if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
-        console.log('[Browse] Opening external browser and going back...');
-        openInExternalBrowser('https://greenhauscc.com/products/cart');
+        console.log('[Browse] Going back - cart blocked on Android');
         ref.current?.goBack();
         return;
       }
@@ -483,11 +484,12 @@ export default function SearchTab() {
               
               console.log('[Browse] Opening URL:', url);
               
+              // Show helpful message telling user to re-add to cart
               if (Platform.OS === 'android') {
                 if (productName) {
-                  ToastAndroid.show(`Opening "${productName}" in browser`, ToastAndroid.SHORT);
+                  ToastAndroid.show(`Opening "${productName}" - please add to cart in browser to checkout`, ToastAndroid.LONG);
                 } else {
-                  ToastAndroid.show('Opening in browser...', ToastAndroid.SHORT);
+                  ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
                 }
               }
               
