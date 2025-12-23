@@ -494,6 +494,13 @@ export default function HomeTab() {
     });
   }, []);
 
+  // Load promos for informational mode (reuse existing fetchPromos but only in informational mode)
+  useEffect(() => {
+    if (platformConfig.informationalOnly && selectedStoreId) {
+      fetchPromos();
+    }
+  }, [platformConfig.informationalOnly, selectedStoreId, fetchPromos]);
+
   // If informational only mode (Google Play compliant), show info screen instead of WebView
   if (platformConfig.informationalOnly) {
     return (
@@ -551,6 +558,38 @@ export default function HomeTab() {
               <Text style={styles.bold}>Crossville:</Text>{'\n'}
               Daily: 10:00 AM - 8:00 PM
             </Text>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="megaphone-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Announcements</Text>
+            {loadingPromos ? (
+              <View style={styles.promosLoading}>
+                <ActivityIndicator size="small" color="#1E4D3A" />
+                <Text style={styles.loadingText}>Loading announcements...</Text>
+              </View>
+            ) : promos.length > 0 ? (
+              promos.map((promo) => (
+                <View key={promo.id} style={styles.announcementCard}>
+                  <View style={styles.announcementHeader}>
+                    <Text style={styles.announcementTitle}>{promo.title}</Text>
+                    {promo.startsAt && (
+                      <Text style={styles.announcementDate}>
+                        {promo.startsAt.toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    )}
+                  </View>
+                  {promo.body && (
+                    <Text style={styles.announcementBody}>{promo.body}</Text>
+                  )}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noAnnouncementsText}>No announcements at this time.</Text>
+            )}
           </View>
 
           <View style={styles.infoSection}>
@@ -885,6 +924,54 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 4,
+  },
+  promosLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  announcementCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  announcementHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  announcementTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#92400E',
+    flex: 1,
+    marginRight: 8,
+  },
+  announcementDate: {
+    fontSize: 12,
+    color: '#92400E',
+    opacity: 0.7,
+  },
+  announcementBody: {
+    fontSize: 14,
+    color: '#92400E',
+    lineHeight: 20,
+  },
+  noAnnouncementsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 12,
   },
   websiteButton: {
     flexDirection: 'row',
