@@ -24,11 +24,14 @@ const INJECTED_CSS = `
   }
 `;
 
-const INJECT_SCRIPT = `
+const getInjectScript = (isAndroidGooglePlay: boolean) => `
   (function() {
     const style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
+
+    // Platform detection for Google Play compliance
+    const isAndroidGooglePlay = ${isAndroidGooglePlay};
 
     // Hide headers, footers, and breadcrumbs
     function hideUIElements() {
@@ -37,6 +40,34 @@ const INJECT_SCRIPT = `
           el.style.display = 'none';
         });
       });
+
+      // Block "Start Shopping" and similar CTA buttons on Google Play version
+      if (isAndroidGooglePlay) {
+        // Block links and buttons that navigate to shopping
+        document.querySelectorAll('a, button').forEach(el => {
+          const text = (el.textContent || '').toLowerCase();
+          const href = (el.getAttribute('href') || '').toLowerCase();
+
+          if (
+            text.includes('start shopping') ||
+            text.includes('shop now') ||
+            text.includes('browse') ||
+            text.includes('continue shopping') ||
+            text.includes('view products') ||
+            text.includes('shop our') ||
+            href.includes('/products') ||
+            href.includes('/shop') ||
+            href.includes('/browse') ||
+            href.includes('/catalog') ||
+            href.includes('#!/products') ||
+            href.includes('#!/shop')
+          ) {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+            el.style.pointerEvents = 'none';
+          }
+        });
+      }
     }
 
     // Run immediately and on DOM changes
@@ -271,20 +302,47 @@ export default function ProfileTab() {
     }
   }, []);
 
-  const handleOpenMail = useCallback(() => {
-    const mailUrl = Platform.select({
-      ios: 'message://',
-      android: 'content://com.android.email.provider',
-      default: 'mailto:',
-    });
+  const handleOpenMail = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      // On Android, try common email apps in order of preference
+      const emailApps = [
+        { name: 'Gmail', url: 'googlegmail://' },
+        { name: 'Outlook', url: 'ms-outlook://' },
+        { name: 'Yahoo Mail', url: 'ymail://' },
+        { name: 'Samsung Email', url: 'samsungemail://' },
+      ];
 
-    Linking.canOpenURL(mailUrl).then((supported) => {
-      if (supported) {
-        Linking.openURL(mailUrl);
-      } else {
+      let opened = false;
+      for (const app of emailApps) {
+        try {
+          const canOpen = await Linking.canOpenURL(app.url);
+          if (canOpen) {
+            await Linking.openURL(app.url);
+            opened = true;
+            break;
+          }
+        } catch (e) {
+          console.log(`Cannot open ${app.name}`);
+        }
+      }
+
+      if (!opened) {
+        Alert.alert('Open Email App', 'Please open your email app manually to get the sign-in link.');
+      }
+    } else {
+      // iOS - use message://
+      const mailUrl = 'message://';
+      try {
+        const supported = await Linking.canOpenURL(mailUrl);
+        if (supported) {
+          await Linking.openURL(mailUrl);
+        } else {
+          Alert.alert('Cannot Open Mail', 'Please open your mail app manually to get the sign-in link.');
+        }
+      } catch (e) {
         Alert.alert('Cannot Open Mail', 'Please open your mail app manually to get the sign-in link.');
       }
-    });
+    }
   }, []);
 
   const handleMessage = useCallback((event: any) => {
@@ -403,8 +461,14 @@ export default function ProfileTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        thirdPartyCookiesEnabled={true}
+        sharedCookiesEnabled={true}
+        cacheEnabled={true}
+        incognito={false}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
         pullToRefreshEnabled={true}
-        injectedJavaScript={INJECT_SCRIPT}
+        injectedJavaScript={getInjectScript(platformConfig.informationalOnly)}
         onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
         onLoadStart={() => {
           console.log('[Profile] Load started');
@@ -418,7 +482,7 @@ export default function ProfileTab() {
             clearTimeout(loadingTimeoutRef.current);
             loadingTimeoutRef.current = null;
           }
-          ref.current?.injectJavaScript(INJECT_SCRIPT);
+          ref.current?.injectJavaScript(getInjectScript(platformConfig.informationalOnly));
         }}
         onError={(error) => {
           console.error('[Profile] WebView error:', error.nativeEvent);
@@ -431,7 +495,7 @@ export default function ProfileTab() {
           setRefreshing(false);
         }}
         onMessage={handleMessage}
-        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         renderLoading={() => (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#5DB075" />

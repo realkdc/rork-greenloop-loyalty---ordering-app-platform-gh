@@ -486,11 +486,13 @@ export default function HomeTab() {
             <Text style={styles.sectionTitle}>Store Locations</Text>
             <Text style={styles.infoText}>
               <Text style={styles.bold}>Cookeville:</Text>{'\n'}
-              1234 Main Street{'\n'}
-              Cookeville, TN 38501{'\n\n'}
+              851 S Willow Ave Suite 115{'\n'}
+              Cookeville, TN 38501{'\n'}
+              Phone: (931) 651-1143{'\n\n'}
               <Text style={styles.bold}>Crossville:</Text>{'\n'}
-              5678 Highway 127{'\n'}
-              Crossville, TN 38555
+              750 US-70 E Suite 106{'\n'}
+              Crossville, TN 38555{'\n'}
+              Phone: (931) 337-0880
             </Text>
           </View>
 
@@ -498,30 +500,25 @@ export default function HomeTab() {
             <Ionicons name="time-outline" size={32} color="#1E4D3A" />
             <Text style={styles.sectionTitle}>Hours</Text>
             <Text style={styles.infoText}>
-              Monday - Saturday: 9:00 AM - 9:00 PM{'\n'}
-              Sunday: 10:00 AM - 6:00 PM
+              <Text style={styles.bold}>Cookeville:</Text>{'\n'}
+              Mon - Sat: 9:00 AM - 9:00 PM{'\n'}
+              Sun: 10:00 AM - 8:00 PM{'\n\n'}
+              <Text style={styles.bold}>Crossville:</Text>{'\n'}
+              Daily: 10:00 AM - 8:00 PM
             </Text>
           </View>
 
           <View style={styles.infoSection}>
-            <Ionicons name="globe-outline" size={32} color="#1E4D3A" />
-            <Text style={styles.sectionTitle}>Visit Our Website</Text>
+            <Ionicons name="information-circle-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>About GreenHaus</Text>
             <Text style={styles.infoText}>
-              For the full shopping experience, visit:{'\n'}
+              GreenHaus is Tennessee's premier cannabis retailer, offering a curated selection of premium products and exceptional customer service. Visit our locations to explore our full range of offerings and speak with our knowledgeable staff.
             </Text>
-            <TouchableOpacity
-              style={styles.websiteButton}
-              onPress={() => Linking.openURL('https://greenhauscc.com')}
-            >
-              <Text style={styles.websiteButtonText}>greenhauscc.com</Text>
-              <Ionicons name="open-outline" size={20} color="#FFFFFF" />
-            </TouchableOpacity>
           </View>
 
           <View style={styles.disclaimer}>
             <Text style={styles.disclaimerText}>
-              This app is for informational purposes only. No purchases can be made through this app.
-              Please visit our website or physical locations to shop.
+              This app is for informational and educational purposes only. No purchases can be made through this app. Please visit our physical store locations for shopping.
             </Text>
           </View>
         </ScrollView>
