@@ -473,6 +473,27 @@ export default function HomeTab() {
     ref.current?.reload();
   };
 
+  const handleOpenDirections = useCallback((address: string) => {
+    const url = Platform.select({
+      ios: `maps://app?daddr=${encodeURIComponent(address)}`,
+      android: `google.navigation:q=${encodeURIComponent(address)}`,
+      default: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
+    });
+
+    Linking.canOpenURL(url).then((supported) => {
+      if (supported) {
+        Linking.openURL(url);
+      } else {
+        // Fallback to browser-based Google Maps
+        const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+        Linking.openURL(fallbackUrl);
+      }
+    }).catch(() => {
+      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+      Linking.openURL(fallbackUrl);
+    });
+  }, []);
+
   // If informational only mode (Google Play compliant), show info screen instead of WebView
   if (platformConfig.informationalOnly) {
     return (
@@ -484,16 +505,40 @@ export default function HomeTab() {
           <View style={styles.infoSection}>
             <Ionicons name="storefront-outline" size={32} color="#1E4D3A" />
             <Text style={styles.sectionTitle}>Store Locations</Text>
-            <Text style={styles.infoText}>
-              <Text style={styles.bold}>Cookeville:</Text>{'\n'}
-              851 S Willow Ave Suite 115{'\n'}
-              Cookeville, TN 38501{'\n'}
-              Phone: (931) 651-1143{'\n\n'}
-              <Text style={styles.bold}>Crossville:</Text>{'\n'}
-              750 US-70 E Suite 106{'\n'}
-              Crossville, TN 38555{'\n'}
-              Phone: (931) 337-0880
-            </Text>
+
+            <TouchableOpacity
+              style={styles.locationCard}
+              onPress={() => handleOpenDirections('851 S Willow Ave Suite 115, Cookeville, TN 38501')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.locationHeader}>
+                <Text style={styles.locationName}>Cookeville</Text>
+                <Ionicons name="navigate-outline" size={20} color="#1E4D3A" />
+              </View>
+              <Text style={styles.locationAddress}>
+                851 S Willow Ave Suite 115{'\n'}
+                Cookeville, TN 38501
+              </Text>
+              <Text style={styles.locationPhone}>Phone: (931) 651-1143</Text>
+              <Text style={styles.directionsPrompt}>Tap for directions</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.locationCard}
+              onPress={() => handleOpenDirections('750 US-70 E Suite 106, Crossville, TN 38555')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.locationHeader}>
+                <Text style={styles.locationName}>Crossville</Text>
+                <Ionicons name="navigate-outline" size={20} color="#1E4D3A" />
+              </View>
+              <Text style={styles.locationAddress}>
+                750 US-70 E Suite 106{'\n'}
+                Crossville, TN 38555
+              </Text>
+              <Text style={styles.locationPhone}>Phone: (931) 337-0880</Text>
+              <Text style={styles.directionsPrompt}>Tap for directions</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.infoSection}>
@@ -803,6 +848,43 @@ const styles = StyleSheet.create({
   bold: {
     fontWeight: '600',
     color: '#1E4D3A',
+  },
+  locationCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  locationName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E4D3A',
+  },
+  locationAddress: {
+    fontSize: 15,
+    color: '#374151',
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  locationPhone: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  directionsPrompt: {
+    fontSize: 13,
+    color: '#1E4D3A',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 4,
   },
   websiteButton: {
     flexDirection: 'row',
