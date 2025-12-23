@@ -180,6 +180,7 @@ export default function HomeTab() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const platformConfig = getPlatformConfig();
 
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -472,6 +473,62 @@ export default function HomeTab() {
     ref.current?.reload();
   };
 
+  // If informational only mode (Google Play compliant), show info screen instead of WebView
+  if (platformConfig.informationalOnly) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.infoContainer}>
+          <Text style={styles.infoTitle}>Welcome to GreenHaus</Text>
+          <Text style={styles.infoSubtitle}>Your trusted cannabis retailer in Tennessee</Text>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="storefront-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Store Locations</Text>
+            <Text style={styles.infoText}>
+              <Text style={styles.bold}>Cookeville:</Text>{'\n'}
+              1234 Main Street{'\n'}
+              Cookeville, TN 38501{'\n\n'}
+              <Text style={styles.bold}>Crossville:</Text>{'\n'}
+              5678 Highway 127{'\n'}
+              Crossville, TN 38555
+            </Text>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="time-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Hours</Text>
+            <Text style={styles.infoText}>
+              Monday - Saturday: 9:00 AM - 9:00 PM{'\n'}
+              Sunday: 10:00 AM - 6:00 PM
+            </Text>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="globe-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Visit Our Website</Text>
+            <Text style={styles.infoText}>
+              For the full shopping experience, visit:{'\n'}
+            </Text>
+            <TouchableOpacity
+              style={styles.websiteButton}
+              onPress={() => Linking.openURL('https://greenhauscc.com')}
+            >
+              <Text style={styles.websiteButtonText}>greenhauscc.com</Text>
+              <Ionicons name="open-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>
+              This app is for informational purposes only. No purchases can be made through this app.
+              Please visit our website or physical locations to shop.
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {hasError && (
@@ -702,6 +759,81 @@ const styles = StyleSheet.create({
   },
   webview: {
     flex: 1,
+  },
+  infoContainer: {
+    flex: 1,
+    padding: 24,
+    backgroundColor: '#F9FAFB',
+  },
+  infoTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1E4D3A',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  infoSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  infoSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1E4D3A',
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 16,
+    color: '#374151',
+    lineHeight: 24,
+  },
+  bold: {
+    fontWeight: '600',
+    color: '#1E4D3A',
+  },
+  websiteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1E4D3A',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  websiteButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  disclaimer: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  disclaimerText: {
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 20,
+    textAlign: 'center',
   },
   loadingOverlay: {
     position: 'absolute',

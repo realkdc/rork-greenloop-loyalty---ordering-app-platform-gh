@@ -124,6 +124,7 @@ function TabsLayout() {
         options={{
           title: TAB_LABELS.search,
           headerShown: false,
+          href: platformConfig.showBrowse ? undefined : null, // null = completely hide from navigation
           tabBarIcon: ({ focused, color, size }) => {
             const iconName = focused ? TAB_ICONS.search.filled : TAB_ICONS.search.outline;
             return (
@@ -220,6 +221,7 @@ function TabsLayout() {
         options={{
           title: TAB_LABELS.orders,
           headerShown: false,
+          href: platformConfig.showOrders ? undefined : null, // null = completely hide from navigation
           tabBarIcon: ({ focused, color, size }) => {
             const iconName = focused ? TAB_ICONS.orders.filled : TAB_ICONS.orders.outline;
             return (

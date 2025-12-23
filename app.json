@@ -31,13 +31,13 @@
       }
     },
     "android": {
-      "versionCode": 5,
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
       "googleServicesFile": "./google-services.json",
-      "package": "app.rork.greenlooployaltyorderingplatform",
+      "package": "app.rork.greenhausinfo",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

@@ -62,13 +62,19 @@ export const PLATFORM_CONFIG = {
   ios: {
     enableCheckout: true,
     showCart: true,
+    showBrowse: true,
+    showOrders: true,
     allowPurchaseFlow: true,
+    informationalOnly: false,
   },
-  // Android: Informational only - no checkout (Google Play policy compliance)
+  // Android Google Play: Completely non-transactional - no catalog, no cart, no orders
   android: {
     enableCheckout: false,
-    showCart: false, // Hide cart tab, redirect to website
+    showCart: false,
+    showBrowse: false, // No product catalog
+    showOrders: false, // No order history
     allowPurchaseFlow: false,
+    informationalOnly: true, // Show info/education only
   },
 };
 
