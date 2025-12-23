@@ -1,12 +1,14 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking, Modal, TextInput } from "react-native";
 import { WebView } from "react-native-webview";
+import type { WebViewNavigation } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { submitAccountDeletionRequest } from "@/services/accountDeletion";
+import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -158,6 +160,7 @@ export default function ProfileTab() {
   webviewRefs.profile = ref;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const platformConfig = getPlatformConfig();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
@@ -166,6 +169,24 @@ export default function ProfileTab() {
   const hasAppliedLinkRef = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+
+  // Block navigation to transactional pages on Google Play version
+  const handleShouldStartLoadWithRequest = useCallback((request: WebViewNavigation) => {
+    const url = request.url || '';
+
+    if (platformConfig.informationalOnly) {
+      // Block cart, checkout, product pages
+      const blockedPaths = ['/cart', '/checkout', '/products', '/place-order', '/payment', '#!/cart', '#!/checkout', '#!/product'];
+      if (blockedPaths.some(path => url.toLowerCase().includes(path))) {
+        console.log('[Profile] Blocked navigation to transactional page:', url);
+        // Navigate back to account page
+        ref.current?.injectJavaScript(`window.location.href = 'https://greenhauscc.com/account'; true;`);
+        return false;
+      }
+    }
+
+    return true;
+  }, [platformConfig.informationalOnly]);
 
   // Force hide spinner after 8 seconds if WebView is stuck
   useEffect(() => {
@@ -381,6 +402,7 @@ export default function ProfileTab() {
         domStorageEnabled
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
+        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
         onLoadStart={() => {
           console.log('[Profile] Load started');
           setIsLoading(true);

@@ -1,4 +1,4 @@
-package app.rork.greenlooployaltyorderingplatform
+package com.greenloop.greenhaus
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

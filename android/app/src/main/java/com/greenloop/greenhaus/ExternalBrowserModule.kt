@@ -1,4 +1,4 @@
-package app.rork.greenlooployaltyorderingplatform
+package com.greenloop.greenhaus
 
 import android.content.Intent
 import android.net.Uri

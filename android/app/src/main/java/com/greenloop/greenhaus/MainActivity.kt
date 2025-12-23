@@ -1,4 +1,4 @@
-package app.rork.greenlooployaltyorderingplatform
+package com.greenloop.greenhaus
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
