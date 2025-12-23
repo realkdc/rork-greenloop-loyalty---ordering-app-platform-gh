@@ -175,12 +175,15 @@ export default function ProfileTab() {
     const url = request.url || '';
 
     if (platformConfig.informationalOnly) {
+      // Allow account page and auth-related pages
+      if (url.includes('/account') || url.includes('greenhauscc.com/') && !url.includes('/products')) {
+        return true;
+      }
+
       // Block cart, checkout, product pages
       const blockedPaths = ['/cart', '/checkout', '/products', '/place-order', '/payment', '#!/cart', '#!/checkout', '#!/product'];
       if (blockedPaths.some(path => url.toLowerCase().includes(path))) {
         console.log('[Profile] Blocked navigation to transactional page:', url);
-        // Navigate back to account page
-        ref.current?.injectJavaScript(`window.location.href = 'https://greenhauscc.com/account'; true;`);
         return false;
       }
     }

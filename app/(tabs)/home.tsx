@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Platform, Linking, ToastAndroid, Alert } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Platform, Linking, ToastAndroid, Alert, ScrollView } from "react-native";
 import { WebView } from "react-native-webview";
 import type { WebViewNavigation } from "react-native-webview";
 import * as WebBrowser from "expo-web-browser";
@@ -477,7 +477,7 @@ export default function HomeTab() {
   if (platformConfig.informationalOnly) {
     return (
       <View style={styles.container}>
-        <View style={styles.infoContainer}>
+        <ScrollView style={styles.infoContainer} contentContainerStyle={styles.infoContent}>
           <Text style={styles.infoTitle}>Welcome to GreenHaus</Text>
           <Text style={styles.infoSubtitle}>Your trusted cannabis retailer in Tennessee</Text>
 
@@ -524,7 +524,7 @@ export default function HomeTab() {
               Please visit our website or physical locations to shop.
             </Text>
           </View>
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -762,8 +762,10 @@ const styles = StyleSheet.create({
   },
   infoContainer: {
     flex: 1,
-    padding: 24,
     backgroundColor: '#F9FAFB',
+  },
+  infoContent: {
+    padding: 24,
   },
   infoTitle: {
     fontSize: 32,
