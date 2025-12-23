@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export interface BrandConfig {
   brandName: string;
   primaryColor: string;
@@ -53,3 +55,35 @@ export const WEBVIEW_MINIMAL_MODE = true;
 // Review flags - Keep auto-login but NO visible demo messaging
 export const REVIEW_DEMO_FAKE_AUTH = false; // Disabled - Apple rejects visible demo mode
 export const REVIEW_DEMO_FAKE_CHECKOUT = false; // Disabled - Apple rejects fake checkout
+
+// Platform-specific configuration for sideload version
+// This branch (android-sideload) is for full shopping experience (not Google Play)
+
+export const PLATFORM_CONFIG = {
+  // iOS: Full functionality including checkout
+  ios: {
+    enableCheckout: true,
+    showCart: true,
+    showBrowse: true,
+    showOrders: true,
+    allowPurchaseFlow: true,
+    informationalOnly: false,
+  },
+  // Android Sideload: Full shopping experience (same as iOS)
+  android: {
+    enableCheckout: true,
+    showCart: true,
+    showBrowse: true,
+    showOrders: true,
+    allowPurchaseFlow: true,
+    informationalOnly: false,
+  },
+};
+
+// Helper to get current platform config
+export const getPlatformConfig = () => {
+  const config = PLATFORM_CONFIG[Platform.OS as 'ios' | 'android'] || PLATFORM_CONFIG.ios;
+  console.log('[CONFIG] 🔍 Platform.OS:', Platform.OS);
+  console.log('[CONFIG] 🔍 Selected config:', JSON.stringify(config));
+  return config;
+};
