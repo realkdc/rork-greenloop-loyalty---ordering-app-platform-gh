@@ -23,25 +23,6 @@ const INJECTED_CSS = `
 
   /* Add padding where header was */
   body { padding-top: 20px !important; }
-
-  /* Hide Toasted Tuesday vape promo tile */
-  a[aria-label*="TOASTED TUESDAY"],
-  a[aria-label*="Toasted Tuesday"],
-  a[aria-label*="toasted tuesday"],
-  a[href*="toasted"][href*="tuesday"],
-  a[href*="Toasted"][href*="Tuesday"],
-  div:has(> a[aria-label*="TOASTED TUESDAY"]),
-  div:has(> a[aria-label*="Toasted Tuesday"]),
-  div:has(> a[href*="toasted"][href*="tuesday"]) {
-    display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
 `;
 
 const INJECT_SCRIPT = `
@@ -204,6 +185,8 @@ export default function HomeTab() {
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Promo modal state
   const [promos, setPromos] = useState<PromoRecord[]>([]);
@@ -361,6 +344,12 @@ export default function HomeTab() {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  const handleRetry = () => {
+    setHasError(false);
+    setIsLoading(true);
+    ref.current?.reload();
+  };
+
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
 
@@ -377,11 +366,6 @@ export default function HomeTab() {
 
   return (
     <View style={styles.container}>
-      {isLoading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#5DB075" />
-        </View>
-      )}
       <WebView
         ref={ref}
         source={{ uri: 'https://greenhauscc.com/' }}
@@ -395,12 +379,141 @@ export default function HomeTab() {
         javaScriptEnabled
         domStorageEnabled
         pullToRefreshEnabled={true}
+        thirdPartyCookiesEnabled={true}
+        sharedCookiesEnabled={true}
+        cacheEnabled={true}
+        incognito={false}
+        geolocationEnabled={true}
+        setSupportMultipleWindows={false}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        injectedJavaScriptBeforeContentLoaded={`
+          // Patch navigator properties for Cloudflare
+          (function() {
+            try {
+              Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+                configurable: true
+              });
+
+              if (!navigator.platform) {
+                Object.defineProperty(navigator, 'platform', {
+                  get: () => 'Linux armv8l',
+                  configurable: true
+                });
+              }
+
+              if (!navigator.hardwareConcurrency) {
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                  get: () => 8,
+                  configurable: true
+                });
+              }
+
+              if (!navigator.deviceMemory) {
+                Object.defineProperty(navigator, 'deviceMemory', {
+                  get: () => 8,
+                  configurable: true
+                });
+              }
+            } catch (e) {
+              console.log('[Home] Browser API patch error:', e);
+            }
+
+            // IMMEDIATELY inject CSS to prevent header/footer flash
+            try {
+              const style = document.createElement('style');
+              style.textContent = \`
+                header, footer, nav, 
+                .ins-header, .site-header, .site-footer, .ec-footer, 
+                .breadcrumbs, .ec-breadcrumbs,
+                .navigation, .site-nav,
+                #header, #footer {
+                  display: none !important;
+                  opacity: 0 !important;
+                  visibility: hidden !important;
+                  height: 0 !important;
+                  pointer-events: none !important;
+                }
+                body { padding-top: 20px !important; }
+              \`;
+              document.documentElement.appendChild(style);
+              
+              // Briefly hide body to prevent content flash during initial render
+              const hideBody = document.createElement('style');
+              hideBody.textContent = 'body { opacity: 0 !important; transition: opacity 0.2s ease; }';
+              document.documentElement.appendChild(hideBody);
+              
+              // Show body after 250ms
+              setTimeout(() => {
+                hideBody.textContent = 'body { opacity: 1 !important; }';
+                setTimeout(() => hideBody.remove(), 200);
+              }, 250);
+
+              // Also hide specifically targeted elements as they appear
+              const observer = new MutationObserver(() => {
+                const targets = document.querySelectorAll('header, footer, nav, .ins-header, .site-header, .site-footer, .ec-footer, .breadcrumbs, .ec-breadcrumbs, #header, #footer');
+                targets.forEach(el => {
+                  if (el.style.display !== 'none') {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('opacity', '0', 'important');
+                  }
+                });
+              });
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+            } catch (e) {}
+          })();
+          true;
+        `}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          console.log('[Home] Load started');
+          setIsLoading(true);
+          setHasError(false);
+
+          // Clear any existing timeout
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+          }
+
+          // Set timeout for 15 seconds - if page doesn't load, show retry
+          loadingTimeoutRef.current = setTimeout(() => {
+            console.log('[Home] Load timeout - showing retry button');
+            setIsLoading(false);
+            setRefreshing(false);
+            setHasError(true);
+          }, 15000);
+        }}
         onLoadEnd={() => {
+          console.log('[Home] Load ended');
+
+          // Clear timeout since page loaded
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
+
           setIsLoading(false);
           setRefreshing(false);
           ref.current?.injectJavaScript(INJECT_SCRIPT);
+        }}
+        onLoadProgress={({ nativeEvent }) => {
+          console.log('[Home] Load progress:', nativeEvent.progress);
+        }}
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Home] WebView error:', nativeEvent);
+          setIsLoading(false);
+          setRefreshing(false);
+          setHasError(true);
+        }}
+        onHttpError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Home] HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+          setIsLoading(false);
+          setRefreshing(false);
+          setHasError(true);
         }}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {
@@ -422,6 +535,22 @@ export default function HomeTab() {
         )}
         startInLoadingState={false}
       />
+
+      {isLoading && !hasError && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#5DB075" />
+        </View>
+      )}
+
+      {hasError && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Failed to load page</Text>
+          <Text style={styles.errorSubtext}>Please check your connection and try again</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>Tap to Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {promos.length > 0 && !isModalOpen && (
         <TouchableOpacity
@@ -542,6 +671,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  errorContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#5DB075',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   fab: {
     position: "absolute",

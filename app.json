@@ -4,7 +4,7 @@
     "slug": "greenloop-loyalty-ordering-platform",
     "version": "1.0.10",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-sideload.png",
     "scheme": "greenhaus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -32,8 +32,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/adaptive-icon-sideload.png",
+        "backgroundColor": "#84cc16"
       },
       "package": "app.rork.greenlooployaltyorderingplatform",
       "permissions": [

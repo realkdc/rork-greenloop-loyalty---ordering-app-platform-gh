@@ -109,29 +109,24 @@ export default function OrdersTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
+  const [hasError, setHasError] = useState(false);
   const hasAppliedLinkRef = useRef(false);
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingUrlRef = useRef<string | null>(null);
 
-  // Force hide spinner after 8 seconds if WebView is stuck
-  useEffect(() => {
-    if (isLoading) {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-      }
-      loadingTimeoutRef.current = setTimeout(() => {
-        console.log('[Orders] Loading timeout - forcing spinner to hide');
-        setIsLoading(false);
-        setRefreshing(false);
-      }, 8000);
+  const handleRetry = () => {
+    console.log('[Orders] Retry requested');
+    setHasError(false);
+    setIsLoading(true);
+    
+    // If we have a pending URL (from a navigation), reload to that
+    if (pendingUrlRef.current && ref.current) {
+      console.log('[Orders] Reloading to pending URL:', pendingUrlRef.current);
+      ref.current.injectJavaScript(`window.location.href = '${pendingUrlRef.current}'; true;`);
+    } else {
+      ref.current?.reload();
     }
-
-    return () => {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-        loadingTimeoutRef.current = null;
-      }
-    };
-  }, [isLoading]);
+  };
 
   const handleManualPaste = useCallback(async () => {
     try {
@@ -226,11 +221,6 @@ export default function OrdersTab() {
 
   return (
     <View style={styles.container}>
-      {isLoading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#5DB075" />
-        </View>
-      )}
       <WebView
         ref={ref}
         source={{ uri: 'https://greenhauscc.com/account/orders' }}
@@ -245,39 +235,162 @@ export default function OrdersTab() {
         domStorageEnabled
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Orders] Load started');
-          setIsLoading(true);
+        onLoadStart={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.log('[Orders] Load started:', nativeEvent.url);
+          
+          if (nativeEvent.url && nativeEvent.url !== 'about:blank') {
+            setIsLoading(true);
+            setHasError(false);
+            pendingUrlRef.current = nativeEvent.url;
+          }
+
+          // Clear any existing timeout
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+          }
+
+          // Set timeout for 20 seconds
+          loadingTimeoutRef.current = setTimeout(() => {
+            console.log('[Orders] Load timeout - showing retry button');
+            setIsLoading(false);
+            setRefreshing(false);
+            setHasError(true);
+          }, 20000);
         }}
         onLoadEnd={() => {
           console.log('[Orders] Load ended');
-          setIsLoading(false);
-          setRefreshing(false);
+          
+          // Clear timeout since page loaded
           if (loadingTimeoutRef.current) {
             clearTimeout(loadingTimeoutRef.current);
             loadingTimeoutRef.current = null;
           }
+
+          setIsLoading(false);
+          setRefreshing(false);
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onError={(error) => {
-          console.error('[Orders] WebView error:', error.nativeEvent);
-          setIsLoading(false);
-          setRefreshing(false);
+        onLoadProgress={({ nativeEvent }) => {
+          if (nativeEvent.progress > 0.7) {
+            setIsLoading(false);
+          }
         }}
-        onHttpError={(error) => {
-          console.error('[Orders] HTTP error:', error.nativeEvent);
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Orders] WebView error:', nativeEvent);
           setIsLoading(false);
           setRefreshing(false);
+          if (nativeEvent.description !== 'net::ERR_ABORTED') {
+            setHasError(true);
+          }
+        }}
+        onHttpError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.error('[Orders] HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+          setIsLoading(false);
+          setRefreshing(false);
+          setHasError(true);
         }}
         onMessage={handleMessage}
-        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
-        renderLoading={() => (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#5DB075" />
-          </View>
-        )}
+        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        injectedJavaScriptBeforeContentLoaded={`
+          // Patch navigator properties for Cloudflare
+          (function() {
+            try {
+              Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+                configurable: true
+              });
+
+              if (!navigator.platform) {
+                Object.defineProperty(navigator, 'platform', {
+                  get: () => 'Linux armv8l',
+                  configurable: true
+                });
+              }
+
+              if (!navigator.hardwareConcurrency) {
+                Object.defineProperty(navigator, 'hardwareConcurrency', {
+                  get: () => 8,
+                  configurable: true
+                });
+              }
+
+              if (!navigator.deviceMemory) {
+                Object.defineProperty(navigator, 'deviceMemory', {
+                  get: () => 8,
+                  configurable: true
+                });
+              }
+            } catch (e) {
+              console.log('[Orders] Browser API patch error:', e);
+            }
+
+            // IMMEDIATELY inject CSS to prevent header/footer flash
+            try {
+              const style = document.createElement('style');
+              style.textContent = \`
+                header, footer, nav, 
+                .ins-header, .site-header, .site-footer, .ec-footer, 
+                .breadcrumbs, .ec-breadcrumbs,
+                .navigation, .site-nav,
+                #header, #footer {
+                  display: none !important;
+                  opacity: 0 !important;
+                  visibility: hidden !important;
+                  height: 0 !important;
+                  pointer-events: none !important;
+                }
+                body { padding-top: 20px !important; }
+              \`;
+              document.documentElement.appendChild(style);
+              
+              // Briefly hide body to prevent content flash during initial render
+              const hideBody = document.createElement('style');
+              hideBody.textContent = 'body { opacity: 0 !important; transition: opacity 0.2s ease; }';
+              document.documentElement.appendChild(hideBody);
+              
+              // Show body after 250ms
+              setTimeout(() => {
+                hideBody.textContent = 'body { opacity: 1 !important; }';
+                setTimeout(() => hideBody.remove(), 200);
+              }, 250);
+
+              // Also hide specifically targeted elements as they appear
+              const observer = new MutationObserver(() => {
+                const targets = document.querySelectorAll('header, footer, nav, .ins-header, .site-header, .site-footer, .ec-footer, .breadcrumbs, .ec-breadcrumbs, #header, #footer');
+                targets.forEach(el => {
+                  if (el.style.display !== 'none') {
+                    el.style.setProperty('display', 'none', 'important');
+                    el.style.setProperty('opacity', '0', 'important');
+                  }
+                });
+              });
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+            } catch (e) {}
+          })();
+          true;
+        `}
+        renderLoading={() => <View />}
         startInLoadingState={false}
       />
+
+      {isLoading && !hasError && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#5DB075" />
+        </View>
+      )}
+
+      {hasError && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Failed to load orders</Text>
+          <Text style={styles.errorSubtext}>Please check your connection and try again</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>Tap to Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {showPasteButton && (
         <View style={styles.helperBanner}>
@@ -329,6 +442,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  errorContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2000,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  errorSubtext: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#5DB075',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   helperBanner: {
     position: 'absolute',
