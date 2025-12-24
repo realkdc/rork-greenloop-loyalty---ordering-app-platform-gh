@@ -304,31 +304,10 @@ export default function ProfileTab() {
 
   const handleOpenMail = useCallback(async () => {
     if (Platform.OS === 'android') {
-      // On Android, try common email apps in order of preference
-      const emailApps = [
-        { name: 'Gmail', url: 'googlegmail://' },
-        { name: 'Outlook', url: 'ms-outlook://' },
-        { name: 'Yahoo Mail', url: 'ymail://' },
-        { name: 'Samsung Email', url: 'samsungemail://' },
-      ];
-
-      let opened = false;
-      for (const app of emailApps) {
-        try {
-          const canOpen = await Linking.canOpenURL(app.url);
-          if (canOpen) {
-            await Linking.openURL(app.url);
-            opened = true;
-            break;
-          }
-        } catch (e) {
-          console.log(`Cannot open ${app.name}`);
-        }
-      }
-
-      if (!opened) {
-        Alert.alert('Open Email App', 'Please open your email app manually to get the sign-in link.');
-      }
+      // On Android Google Play version, just show the paste banner with instructions
+      // Android doesn't have a reliable universal "open email inbox" intent
+      console.log('Android: Showing paste banner with instructions');
+      setShowPasteButton(true);
     } else {
       // iOS - use message://
       const mailUrl = 'message://';
