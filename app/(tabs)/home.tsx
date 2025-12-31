@@ -593,6 +593,22 @@ export default function HomeTab() {
           </View>
 
           <View style={styles.infoSection}>
+            <Ionicons name="globe-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Visit Our Website</Text>
+            <Text style={styles.infoText}>
+              For the full shopping experience, browse our products and place orders online:
+            </Text>
+            <TouchableOpacity
+              style={styles.websiteButton}
+              onPress={() => Linking.openURL('https://greenhauscc.com')}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.websiteButtonText}>greenhauscc.com</Text>
+              <Ionicons name="open-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoSection}>
             <Ionicons name="information-circle-outline" size={32} color="#1E4D3A" />
             <Text style={styles.sectionTitle}>About GreenHaus</Text>
             <Text style={styles.infoText}>
