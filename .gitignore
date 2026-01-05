@@ -56,3 +56,8 @@ Simulator Screenshot -*
 # typescript
 *.tsbuildinfo
 .vercel
+
+# Generated CSV exports from Lightspeed scripts
+*.csv
+recent_sales_*.csv
+last_*.csv
