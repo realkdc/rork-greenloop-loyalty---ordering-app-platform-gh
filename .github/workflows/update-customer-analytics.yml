@@ -23,6 +23,29 @@ jobs:
       - name: Install dependencies
         run: npm install
         
+      - name: Check if master CSV exists
+        id: check_master
+        run: |
+          if [ -f customer_analytics_master.csv ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Master CSV not found - creating initial one..."
+          fi
+          
+      - name: Create initial master CSV (if needed)
+        if: steps.check_master.outputs.exists == 'false'
+        env:
+          EXPO_PUBLIC_LIGHTSPEED_TOKEN: ${{ secrets.LIGHTSPEED_TOKEN }}
+          EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX: ${{ secrets.LIGHTSPEED_DOMAIN_PREFIX }}
+        run: |
+          echo "📊 Creating initial master CSV..."
+          npx tsx scripts/analyzeCustomerMetrics.ts --reuse-customers --cache || true
+          # Rename to master if created
+          if [ -f customer_analytics_*.csv ]; then
+            mv customer_analytics_*.csv customer_analytics_master.csv 2>/dev/null || true
+          fi
+          
       - name: Run incremental update
         env:
           EXPO_PUBLIC_LIGHTSPEED_TOKEN: ${{ secrets.LIGHTSPEED_TOKEN }}
