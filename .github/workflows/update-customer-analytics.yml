@@ -1,0 +1,5 @@
+```bash
+git add .github/workflows/update-customer-analytics.yml
+git commit -m "Add automated customer analytics updates"
+git push
+```
