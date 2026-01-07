@@ -37,7 +37,7 @@
         "backgroundColor": "#ffffff"
       },
       "googleServicesFile": "./google-services.json",
-      "package": "com.greenloop.greenhaus",
+      "package": "app.rork.greenlooployaltyorderingplatform",
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",

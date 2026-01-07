@@ -1,4 +1,4 @@
-package com.greenloop.greenhaus
+package app.rork.greenlooployaltyorderingplatform
 
 import android.app.Application
 import android.content.res.Configuration
