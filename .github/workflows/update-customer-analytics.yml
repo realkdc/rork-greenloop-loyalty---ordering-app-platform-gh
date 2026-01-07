@@ -1,0 +1,46 @@
+name: Update Customer Analytics
+
+on:
+  schedule:
+    # Run daily at 2:00 AM UTC (9:00 PM EST / 6:00 PM PST previous day)
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Run incremental update
+        env:
+          EXPO_PUBLIC_LIGHTSPEED_TOKEN: ${{ secrets.LIGHTSPEED_TOKEN }}
+          EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX: ${{ secrets.LIGHTSPEED_DOMAIN_PREFIX }}
+        run: npx tsx scripts/incrementalUpdate.ts
+        
+      - name: Commit updated CSV
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add customer_analytics_master.csv
+          git diff --staged --quiet || git commit -m "Auto-update customer analytics [skip ci]"
+          git push
+        continue-on-error: true
+        
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-analytics
+          path: customer_analytics_master.csv
+          retention-days: 30
