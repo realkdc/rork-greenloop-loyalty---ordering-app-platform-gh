@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'app.rork.greenlooployaltyorderingplatform'
+    namespace 'com.greenloop.greenhaus'
     defaultConfig {
-        applicationId 'app.rork.greenlooployaltyorderingplatform'
+        applicationId 'com.greenloop.greenhaus'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
