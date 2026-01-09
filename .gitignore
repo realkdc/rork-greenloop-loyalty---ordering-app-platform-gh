@@ -51,6 +51,7 @@ Simulator Screenshot -*
 .tmp-home/
 
 # local env files
+.env
 .env*.local
 
 # typescript

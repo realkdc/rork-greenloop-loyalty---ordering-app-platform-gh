@@ -48,6 +48,10 @@ interface CustomerRecord {
   inactiveSegment: string;
   tier: string;
   referredSales: number;
+  ecomOrderCount?: number;
+  retailOrderCount?: number;
+  duplicateIds?: string;
+  note?: string;
   isFirstTimeBuyer?: string;
   firstTimeBuyerDate?: string;
   daysSinceFirstPurchase?: number | null;
@@ -145,6 +149,10 @@ function loadMasterCSV(): Map<string, CustomerRecord> {
       inactiveSegment: record['Inactive Segment'] || '',
       tier: record['Tier'] || '',
       referredSales: parseInt(record['Referred Sales'] || '0') || 0,
+      ecomOrderCount: parseInt(record['eCom Order Count'] || '0') || 0,
+      retailOrderCount: parseInt(record['Retail Order Count'] || '0') || 0,
+      duplicateIds: record['Duplicate IDs'] || '',
+      note: record['Note'] || '',
       isFirstTimeBuyer: record['Is First Time Buyer'] || undefined,
       firstTimeBuyerDate: record['First Time Buyer Date'] || undefined,
       daysSinceFirstPurchase: record['Days Since First Purchase'] ? parseInt(record['Days Since First Purchase']) : null,
@@ -477,7 +485,32 @@ async function main() {
   }
   
   console.log(`   ✅ Updated: ${updated} | Added: ${added}\n`);
-  
+
+  // Validate data integrity - remove any placeholder emails
+  console.log('🔍 Validating data integrity...');
+  const emailFrequency = new Map<string, number>();
+  for (const customer of masterCustomers.values()) {
+    const email = (customer.email || '').toLowerCase().trim();
+    if (email && email.includes('@')) {
+      emailFrequency.set(email, (emailFrequency.get(email) || 0) + 1);
+    }
+  }
+
+  let placeholderEmailsRemoved = 0;
+  for (const customer of masterCustomers.values()) {
+    const email = (customer.email || '').toLowerCase().trim();
+    if (email && emailFrequency.get(email)! > 1) {
+      customer.email = '';
+      placeholderEmailsRemoved++;
+    }
+  }
+
+  if (placeholderEmailsRemoved > 0) {
+    console.log(`   ⚠️  Removed ${placeholderEmailsRemoved} placeholder emails\n`);
+  } else {
+    console.log(`   ✅ All data is clean\n`);
+  }
+
   // Save updated master CSV
   console.log('💾 Saving master CSV...');
   const headers = [
@@ -497,6 +530,10 @@ async function main() {
     'Inactive Segment',
     'Tier',
     'Referred Sales',
+    'eCom Order Count',
+    'Retail Order Count',
+    'Duplicate IDs',
+    'Note',
     'Last Updated',
   ];
   
@@ -520,6 +557,10 @@ async function main() {
       escapeCsvField(customer.inactiveSegment),
       escapeCsvField(customer.tier),
       customer.referredSales.toString(),
+      (customer.ecomOrderCount || 0).toString(),
+      (customer.retailOrderCount || 0).toString(),
+      escapeCsvField(customer.duplicateIds || ''),
+      escapeCsvField(customer.note || ''),
       escapeCsvField(customer.lastUpdated || ''),
     ].join(','));
   }
