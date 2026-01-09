@@ -1,20 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import Device from "@/lib/device";
+// Do NOT touch expo-notifications at module scope; dynamic import inside effects only
+let Notifications: typeof import("expo-notifications") | null = null;
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
-type PermissionStatus = Notifications.PermissionStatus | "unavailable";
+type PermissionStatus = import("expo-notifications").PermissionStatus | "unavailable";
 
 type EasExtra = {
   eas?: {
@@ -50,12 +41,15 @@ export type UseExpoPushTokenResult = {
 
 export const useExpoPushToken = (): UseExpoPushTokenResult => {
   const [token, setToken] = useState<string | null>(null);
-  const [status, setStatus] = useState<PermissionStatus>(Notifications.PermissionStatus.UNDETERMINED);
+  const [status, setStatus] = useState<PermissionStatus>(
+    "unavailable",
+  );
   const [isRequesting, setIsRequesting] = useState(false);
   const [lastError, setLastError] = useState<Error | null>(null);
 
   const fetchToken = useCallback(async () => {
     const projectId = getProjectId();
+    if (!Notifications) return null;
     const tokenResult = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
 
     if (Platform.OS === "android") {
@@ -83,6 +77,27 @@ export const useExpoPushToken = (): UseExpoPushTokenResult => {
       }
 
       try {
+        if (!Notifications) {
+          try {
+            const mod = await import("expo-notifications");
+            Notifications = mod;
+            if (Notifications?.setNotificationHandler) {
+              Notifications.setNotificationHandler({
+                handleNotification: async () => ({
+                  shouldShowAlert: true,
+                  shouldPlaySound: false,
+                  shouldSetBadge: false,
+                  shouldShowBanner: true,
+                  shouldShowList: true,
+                }),
+              });
+            }
+          } catch {
+            // Not available in this runtime
+            setStatus("unavailable");
+            return;
+          }
+        }
         const permissions = await Notifications.getPermissionsAsync();
 
         if (!isActive) {
@@ -131,6 +146,10 @@ export const useExpoPushToken = (): UseExpoPushTokenResult => {
     setLastError(null);
 
     try {
+      if (!Notifications) {
+        const mod = await import("expo-notifications");
+        Notifications = mod;
+      }
       let currentStatus = (await Notifications.getPermissionsAsync()).status;
 
       if (currentStatus !== Notifications.PermissionStatus.GRANTED) {
@@ -168,4 +187,3 @@ export const useExpoPushToken = (): UseExpoPushTokenResult => {
 };
 
 export default useExpoPushToken;
-

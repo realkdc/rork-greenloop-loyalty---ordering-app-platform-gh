@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { SecureStore } from '@/lib/secureStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useApp } from '@/contexts/AppContext';
 import { migrateFromStore123 } from '@/src/lib/migration';
@@ -13,7 +13,9 @@ interface UseActiveStoreIdReturn {
 }
 
 export function useActiveStoreId(): UseActiveStoreIdReturn {
-  const { user } = useAuth();
+  // Be defensive: the auth provider may not be mounted yet in early boot or error overlays
+  const auth = (useAuth as unknown as (() => { user: any } | undefined))?.();
+  const user = auth?.user ?? null;
   const { selectedStoreId, setSelectedStoreId } = useApp();
   const [ready, setReady] = useState(false);
 

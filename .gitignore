@@ -51,8 +51,15 @@ Simulator Screenshot -*
 .tmp-home/
 
 # local env files
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 .vercel
+
+# Generated CSV exports from Lightspeed scripts
+*.csv
+!customer_analytics_master.csv  # Exception: Master CSV needed for GitHub Actions
+recent_sales_*.csv
+last_*.csv

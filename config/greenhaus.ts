@@ -35,7 +35,7 @@ export const STORES: StoreInfo[] = [
 export const Store = {
   HOME: "https://greenhauscc.com/",
   SEARCH: "https://greenhauscc.com/products",
-  CART: "https://greenhauscc.com/cart",
+  CART: "https://greenhauscc.com/products/cart",
   ORDERS: "https://greenhauscc.com/account/orders",
   PROFILE: "https://greenhauscc.com/account",
 };

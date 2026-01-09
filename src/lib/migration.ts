@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import { SecureStore } from '@/lib/secureStore';
 import { StorageService } from '@/services/storage';
 
 const MIGRATION_KEY = 'gh.migration.store_123_completed';

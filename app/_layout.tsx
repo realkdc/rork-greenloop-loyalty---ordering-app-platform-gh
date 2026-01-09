@@ -1,30 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter } from "expo-router";
-import * as Notifications from "expo-notifications";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, Component, type ReactNode } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, AppState } from "react-native";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import { WebViewProvider } from "@/contexts/WebViewContext";
 import { MagicLinkProvider, useMagicLink } from "@/contexts/MagicLinkContext";
 import { trpc, trpcClient } from "@/lib/trpc";
 import registerPushToken from "@/src/lib/push/registerPushToken";
+import { debugLog } from "@/lib/logger";
+import { trackAnalyticsEvent } from "@/services/analytics";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
 
 const queryClient = new QueryClient();
 
@@ -133,7 +124,7 @@ function DeepLinkHandler() {
       return;
     }
 
-    console.log("🔗 Processing magic link, navigating to profile...");
+    debugLog("🔗 Processing magic link, navigating to profile...");
 
     router.push("/(tabs)/profile");
 
@@ -151,21 +142,28 @@ function DeepLinkHandler() {
 
 function PushTokenRegistrar() {
   const { selectedStoreId } = useApp();
+  const { user } = useAuth();
   const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
+  // Log when component mounts
   useEffect(() => {
-    console.error("🎯 [PushTokenRegistrar] Effect triggered");
-    console.error("🎯 [PushTokenRegistrar] selectedStoreId:", selectedStoreId);
-    console.error("🎯 [PushTokenRegistrar] backendBaseUrl:", backendBaseUrl);
-    console.error("🎯 [PushTokenRegistrar] process.env.EXPO_PUBLIC_API_URL:", process.env.EXPO_PUBLIC_API_URL);
+    debugLog("🔔 [PushTokenRegistrar] Component mounted");
+    debugLog("🔔 [PushTokenRegistrar] Initial selectedStoreId:", selectedStoreId);
+  }, []);
+
+  useEffect(() => {
+    debugLog("🎯 [PushTokenRegistrar] Effect triggered");
+    debugLog("🎯 [PushTokenRegistrar] selectedStoreId:", selectedStoreId, "type:", typeof selectedStoreId);
+    debugLog("🎯 [PushTokenRegistrar] backendBaseUrl:", backendBaseUrl);
+    debugLog("🎯 [PushTokenRegistrar] process.env.EXPO_PUBLIC_API_URL:", process.env.EXPO_PUBLIC_API_URL);
 
     // Only register after store is selected and ready
     if (!selectedStoreId) {
-      console.error("⏸️ [PushTokenRegistrar] Skipping: No store selected yet");
+      debugLog("⏸️ [PushTokenRegistrar] Skipping: No store selected yet");
       return;
     }
 
-    console.error("▶️ [PushTokenRegistrar] Calling registerPushToken...");
+    debugLog("▶️ [PushTokenRegistrar] ✅ Store ID available! Calling registerPushToken with storeId:", selectedStoreId);
     void registerPushToken({
       storeId: selectedStoreId,
       backendBaseUrl,
@@ -174,16 +172,70 @@ function PushTokenRegistrar() {
     });
   }, [backendBaseUrl, selectedStoreId]);
 
+  // Track APP_OPEN on mount and when app comes to foreground
+  useEffect(() => {
+    // Track initial app open
+    trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+
+    // Track when app returns to foreground (not initial open)
+    let previousState = AppState.currentState;
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      // Only fire if transitioning from background/inactive to active
+      if (previousState !== 'active' && nextAppState === 'active') {
+        trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+      }
+      previousState = nextAppState;
+    });
+
+    return () => subscription.remove();
+  }, [user?.uid]);
+
   return null;
 }
 
 export default function RootLayout() {
   useEffect(() => {
+    // Only attempt to load expo-notifications on a physical device.
+    // Importing this module in simulators/dev clients can throw when native modules are missing.
+    (async () => {
+      try {
+        const Device = (await import("@/lib/device")).default;
+        if (!Device?.isDevice) {
+          debugLog("Skipping notifications handler: not a physical device");
+          return;
+        }
+        const mod = await import("expo-notifications");
+        if (mod?.setNotificationHandler) {
+          mod.setNotificationHandler({
+            handleNotification: async () => ({
+              shouldShowAlert: true,
+              shouldPlaySound: false,
+              shouldSetBadge: false,
+              shouldShowBanner: true,
+              shouldShowList: true,
+            }),
+          });
+
+          // Track when user taps on a notification
+          mod.addNotificationResponseReceivedListener((response) => {
+            const { notification } = response;
+            trackAnalyticsEvent('PUSH_OPEN', {
+              campaignId: notification.request.content.data?.campaignId,
+              title: notification.request.content.title,
+            });
+          });
+        }
+      } catch {
+        debugLog("Skipping notifications handler: expo-notifications not available in this runtime");
+      }
+    })();
+
     const hideSplash = async () => {
       try {
         await SplashScreen.hideAsync();
       } catch {
-        console.log('Splash screen already hidden');
+        debugLog('Splash screen already hidden');
       }
     };
     hideSplash();

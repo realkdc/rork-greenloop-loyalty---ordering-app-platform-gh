@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StorageService } from '@/services/storage';
@@ -9,6 +9,7 @@ import { useGeoGate } from '@/hooks/useGeoGate';
 import { ReviewGeoGate } from '@/screens/ReviewGeoGate';
 import { FakeAuthService } from '@/services/fakeAuth';
 import { FakeDemoOrdersService } from '@/services/fakeDemoOrders';
+import { debugLog } from '@/lib/logger';
 
 export default function Index() {
   const router = useRouter();
@@ -16,30 +17,69 @@ export default function Index() {
   const { isLoading } = auth || { isLoading: true };
   const geoGate = useGeoGate();
   const [showTimeout, setShowTimeout] = useState(false);
+  const [navigating, setNavigating] = useState(false);
+  const routerRef = useRef(router);
+  const demoSetupRef = useRef(false);
 
   useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
+
+  debugLog(
+    '[Index] 🎬 RENDERING - isLoading:',
+    isLoading,
+    'geoGate.checking:',
+    geoGate.checking,
+    'geoGate.allowed:',
+    geoGate.allowed,
+    'DEMO_MODE:',
+    APP_CONFIG.DEMO_MODE,
+    'navigating:',
+    navigating
+  );
+
+  useEffect(() => {
+    if (navigating) {
+      return;
+    }
+
     // Set a timeout to show retry button if loading takes too long
     const timeoutTimer = setTimeout(() => {
+      debugLog('[Index] ⏰ Timeout reached - showing retry button');
       setShowTimeout(true);
     }, 8000); // Show after 8 seconds
 
     // DEMO MODE: Skip all geo-gate checks and go straight to onboarding bypass
     if (APP_CONFIG.DEMO_MODE) {
-      if (isLoading) return;
+      debugLog('[Index] 🎭 DEMO MODE active - isLoading:', isLoading);
+      if (isLoading) {
+        debugLog('[Index] ⏳ Still loading auth, waiting...');
+        return;
+      }
+
+      if (demoSetupRef.current) {
+        return;
+      }
+
+      demoSetupRef.current = true;
+      debugLog('[Index] ✅ Auth loaded, setting up demo mode...');
 
       const checkOnboarding = async () => {
         try {
-          console.log('🎭 DEMO MODE: Bypassing all gates, going directly to home');
-          
+          debugLog('[Index] 🎭 DEMO MODE: Bypassing all gates, going directly to home');
+
           // Initialize fake auth session for review
+          debugLog('[Index] 🔐 Initializing fake auth session...');
           await FakeAuthService.initSession();
-          console.log('✅ Fake auth session initialized');
-          
+          debugLog('[Index] ✅ Fake auth session initialized');
+
           // Initialize sample demo order
+          debugLog('[Index] 📦 Initializing sample demo order...');
           await FakeDemoOrdersService.initSampleOrder();
-          console.log('✅ Sample demo order initialized');
-          
+          debugLog('[Index] ✅ Sample demo order initialized');
+
           // Set up demo onboarding state
+          debugLog('[Index] 📝 Setting up onboarding state...');
           await StorageService.saveOnboardingState({
             ageVerified: true,
             state: 'CA',
@@ -48,17 +88,26 @@ export default function Index() {
             completedOnboarding: true,
           });
           await StorageService.setIntroSeen(true);
+          debugLog('[Index] ✅ Onboarding state saved');
+
           clearTimeout(timeoutTimer);
-          router.replace('/(tabs)/home');
+          debugLog('[Index] 🚀 Navigating to home tab...');
+          setNavigating(true);
+          routerRef.current.replace('/(tabs)/home');
+          debugLog('[Index] ✅ Navigation to home tab initiated');
         } catch (error) {
-          console.error('Failed to setup demo mode:', error);
+          console.error('[Index] ❌ Failed to setup demo mode:', error);
           clearTimeout(timeoutTimer);
-          router.replace('/(tabs)/home');
+          debugLog('[Index] 🚀 Fallback: Navigating to home tab anyway...');
+          setNavigating(true);
+          routerRef.current.replace('/(tabs)/home');
         }
       };
 
+      debugLog('[Index] ⏰ Scheduling demo mode setup in 100ms...');
       const timer = setTimeout(checkOnboarding, 100);
       return () => {
+        debugLog('[Index] 🧹 Cleanup: clearing timers');
         clearTimeout(timer);
         clearTimeout(timeoutTimer);
       };
@@ -74,35 +123,42 @@ export default function Index() {
 
         const introSeen = await StorageService.getIntroSeen();
         if (!introSeen) {
+          setNavigating(true);
           router.replace('/intro');
           return;
         }
 
         const onboarding = await StorageService.getOnboardingState();
-        console.log('Onboarding state:', onboarding);
-        
+        debugLog('Onboarding state:', onboarding);
+
         if (!onboarding?.ageVerified) {
+          setNavigating(true);
           router.replace('/age-gate');
         } else if (!onboarding?.completedOnboarding) {
           if (!onboarding?.state) {
+            setNavigating(true);
             router.replace('/geo-gate');
           } else if (!onboarding?.activeStoreId) {
+            setNavigating(true);
             router.replace('/store-picker');
           } else {
+            setNavigating(true);
             router.replace('/(tabs)/home');
           }
         } else {
-          router.replace('/(tabs)/home');
+          setNavigating(true);
+          routerRef.current.replace('/(tabs)/home');
         }
       } catch (error) {
         console.error('Failed to check onboarding:', error);
-        router.replace('/age-gate');
+        setNavigating(true);
+        routerRef.current.replace('/age-gate');
       }
     };
 
     const timer = setTimeout(checkOnboarding, 100);
     return () => clearTimeout(timer);
-  }, [router, isLoading, geoGate.checking, geoGate.allowed, APP_CONFIG.DEMO_MODE]);
+  }, [navigating, isLoading, geoGate.checking, geoGate.allowed]);
 
   // Show geo-gate screen if location check failed (only in non-demo mode)
   if (!APP_CONFIG.DEMO_MODE && !geoGate.allowed && !geoGate.checking) {
@@ -112,8 +168,16 @@ export default function Index() {
   // Show loading while checking geo-gate or auth
   const handleRetry = () => {
     setShowTimeout(false);
-    router.replace('/(tabs)/home');
+    setNavigating(true);
+    routerRef.current.replace('/(tabs)/home');
   };
+
+  // Don't render anything if we've started navigating - this prevents the spinner from showing
+  // while the navigation transition is happening
+  if (navigating) {
+    debugLog('[Index] Navigating - returning null to hide spinner');
+    return <View style={styles.container} />;
+  }
 
   return (
     <View style={styles.container}>

@@ -3,9 +3,15 @@ import { Platform, ScrollView, Text, TouchableOpacity, View } from "react-native
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+// Avoid importing expo-notifications at module scope; dynamically import when needed
+type NotificationsModule = typeof import("expo-notifications");
+let Notifications: NotificationsModule | null = null;
 
-type PermissionStatus = Notifications.PermissionStatus | "unavailable";
+type PermissionStatus = import("expo-notifications").PermissionStatus | "unavailable";
+const PERMISSION_STATUS = {
+  UNDETERMINED: "undetermined" as PermissionStatus,
+  GRANTED: "granted" as PermissionStatus,
+};
 
 type EasExtra = {
   eas?: {
@@ -39,14 +45,17 @@ const requestPermissionAndToken = async (): Promise<{
     return { status: "unavailable", token: null };
   }
 
+  if (!Notifications) {
+    try { Notifications = await import("expo-notifications"); } catch { return { status: "unavailable", token: null }; }
+  }
   let { status } = await Notifications.getPermissionsAsync();
 
-  if (status !== Notifications.PermissionStatus.GRANTED) {
+  if (status !== PERMISSION_STATUS.GRANTED) {
     const requestResult = await Notifications.requestPermissionsAsync();
     status = requestResult.status;
   }
 
-  if (status !== Notifications.PermissionStatus.GRANTED) {
+  if (status !== PERMISSION_STATUS.GRANTED) {
     return { status, token: null };
   }
 
@@ -64,7 +73,7 @@ const requestPermissionAndToken = async (): Promise<{
 };
 
 export const DevPushScreen = () => {
-  const [status, setStatus] = useState<PermissionStatus>(Notifications.PermissionStatus.UNDETERMINED);
+  const [status, setStatus] = useState<PermissionStatus>(PERMISSION_STATUS.UNDETERMINED);
   const [token, setToken] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
@@ -96,7 +105,7 @@ export const DevPushScreen = () => {
 
       if (result.token) {
         console.log("Expo push token:", result.token);
-      } else if (result.status !== Notifications.PermissionStatus.GRANTED) {
+      } else if (result.status !== PERMISSION_STATUS.GRANTED) {
         setErrorMessage("Permission not granted. Please allow notifications in settings.");
       }
 
@@ -188,4 +197,3 @@ export const DevPushScreen = () => {
     </ScrollView>
   );
 };
-

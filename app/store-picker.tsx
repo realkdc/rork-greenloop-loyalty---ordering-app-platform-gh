@@ -8,10 +8,13 @@ import { STORES } from '@/constants/stores';
 import type { Store as StoreType } from '@/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useActiveStoreId } from '@/src/hooks/useActiveStoreId';
+import { useAuth } from '@/contexts/AuthContext';
+import { trackAnalyticsEvent } from '@/services/analytics';
 
 export default function StorePickerScreen() {
   const router = useRouter();
   const { setStoreId } = useActiveStoreId();
+  const { user } = useAuth();
   const [stores, setStores] = useState<StoreType[]>([]);
   const [selectedStore, setSelectedStore] = useState<StoreType | null>(null);
 
@@ -34,6 +37,9 @@ export default function StorePickerScreen() {
       Alert.alert('Select Store', 'Please select a store to continue.');
       return;
     }
+
+    // Track analytics
+    trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
 
     // Use the new hook to set the store ID
     await setStoreId(selectedStore.id);

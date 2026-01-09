@@ -1,6 +1,5 @@
 import Constants from "expo-constants";
-import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
+import Device from "@/lib/device";
 import { Platform } from "react-native";
 
 type EasExtra = {
@@ -44,53 +43,72 @@ export const registerPushToken = async ({
   env,
   optedIn = true,
 }: RegisterPushTokenParams): Promise<string | null> => {
-  console.error("🔔 [PUSH] registerPushToken called with:", {
-    storeId,
-    backendBaseUrl,
-    env,
-    optedIn,
-    isDevice: Device.isDevice,
-  });
+  console.log("📱 [registerPushToken] Called with params:", { storeId, backendBaseUrl, env, optedIn });
+  console.log("📱 [registerPushToken] Device.isDevice:", Device.isDevice);
 
+  // Skip immediately on simulators or non-device environments to avoid touching native modules
   if (!Device.isDevice) {
-    console.log("Skipping push registration: requires physical device");
+    console.log("⏭️ [registerPushToken] Skipping push registration: requires physical device");
+    return null;
+  }
+  // Lazy-require notifications to avoid crashing in dev clients missing the native module
+  let Notifications: typeof import("expo-notifications") | null = null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    Notifications = require("expo-notifications");
+    console.log("✅ [registerPushToken] expo-notifications loaded successfully");
+  } catch (error) {
+    console.log("❌ [registerPushToken] Failed to load expo-notifications:", error);
+    Notifications = null;
+  }
+
+  if (!Notifications) {
+    console.log("⏭️ [registerPushToken] Skipping push registration: expo-notifications not available in this build");
     return null;
   }
 
   if (!backendBaseUrl) {
-    console.error("❌ [PUSH] CRITICAL: backend base URL is undefined!");
-    console.error("❌ [PUSH] process.env.EXPO_PUBLIC_API_URL =", process.env.EXPO_PUBLIC_API_URL);
+    console.log("⚠️ [registerPushToken] Missing backend base URL; skipping");
     return null;
   }
 
   // Throttle check
   const now = Date.now();
-  if (now - lastRegistrationTime < THROTTLE_MS) {
-    console.log("PUSH register throttled (20s cooldown)");
+  const timeSinceLastRegistration = now - lastRegistrationTime;
+  console.log("⏱️ [registerPushToken] Time since last registration:", timeSinceLastRegistration, "ms (throttle:", THROTTLE_MS, "ms)");
+
+  if (timeSinceLastRegistration < THROTTLE_MS) {
+    console.log("🛑 [registerPushToken] THROTTLED - cooldown remaining:", THROTTLE_MS - timeSinceLastRegistration, "ms");
     return null;
   }
 
   try {
+    console.log("🔐 [registerPushToken] Checking permissions...");
     let { status } = await Notifications.getPermissionsAsync();
+    console.log("🔐 [registerPushToken] Current permission status:", status);
 
     if (status !== Notifications.PermissionStatus.GRANTED) {
+      console.log("🔐 [registerPushToken] Requesting permissions...");
       const requestResult = await Notifications.requestPermissionsAsync();
       status = requestResult.status;
+      console.log("🔐 [registerPushToken] Permission request result:", status);
     }
 
     if (status !== Notifications.PermissionStatus.GRANTED) {
-      console.log("Push notification permission not granted");
+      console.log("❌ [registerPushToken] Push notification permission not granted");
       return null;
     }
 
     const projectId = getProjectId();
+    console.log("🎫 [registerPushToken] Getting push token with projectId:", projectId);
     const tokenResult = await Notifications.getExpoPushTokenAsync(
       projectId ? { projectId } : undefined,
     );
     const token = tokenResult.data;
+    console.log("🎫 [registerPushToken] Obtained token:", token ? `${token.substring(0, 20)}...` : "null");
 
     if (!token) {
-      console.warn("Failed to obtain Expo push token");
+      console.log("❌ [registerPushToken] Failed to obtain Expo push token");
       return null;
     }
 
@@ -112,15 +130,8 @@ export const registerPushToken = async ({
       optedIn,
     };
 
-    console.error("🚀 [PUSH] Registering token...");
-    console.error("📍 [PUSH] URL:", registerUrl);
-    console.error("📦 [PUSH] Payload:", {
-      tokenPreview: token.substring(0, 20) + "...",
-      deviceOS: Platform.OS,
-      env,
-      storeId,
-      optedIn,
-    });
+    console.log("🌐 [registerPushToken] Registering with backend:", registerUrl);
+    console.log("🌐 [registerPushToken] Payload:", { ...payload, token: token.substring(0, 20) + "..." });
 
     const response = await fetch(registerUrl, {
       method: "POST",
@@ -130,21 +141,20 @@ export const registerPushToken = async ({
       body: JSON.stringify(payload),
     });
 
+    console.log("🌐 [registerPushToken] Backend response status:", response.status, response.statusText);
+
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unable to read error");
-      console.error(`❌ [PUSH] Registration FAILED: ${response.status}/${response.statusText}`);
-      console.error(`❌ [PUSH] Error body:`, errorText);
+      console.log("❌ [registerPushToken] Backend error:", errorText);
       return null;
     }
 
     const responseData = await response.json().catch(() => ({}));
-    console.error("✅ [PUSH] Registration SUCCESS!");
-    console.error("✅ [PUSH] Response:", responseData);
+    console.log("✅ [registerPushToken] Successfully registered! Response:", responseData);
     lastRegistrationTime = now;
     return token;
   } catch (error) {
-    console.error("💥 [PUSH] Exception during registration:", error instanceof Error ? error.message : String(error));
-    console.error("💥 [PUSH] Full error:", error);
+    console.log("❌ [registerPushToken] Exception during registration:", error instanceof Error ? error.message : String(error));
     return null;
   }
 };
