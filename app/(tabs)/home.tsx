@@ -1,6 +1,9 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Modal, TouchableWithoutFeedback, ActivityIndicator, Platform, Linking, ToastAndroid, Alert, ScrollView } from "react-native";
 import { WebView } from "react-native-webview";
+import type { WebViewNavigation } from "react-native-webview";
+import * as WebBrowser from "expo-web-browser";
+import CookieManager from "@react-native-cookies/cookies";
 import { webviewRefs } from "./_layout";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,9 +14,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
-  /* Hide header and footer only */
+  /* Hide header, footer, and breadcrumbs */
   header, .ins-header, .site-header,
   footer, .site-footer, .ec-footer,
   nav, .navigation, .site-nav,
@@ -21,174 +25,150 @@ const INJECTED_CSS = `
     display: none !important;
   }
 
-  /* Add padding where header was */
-  body { padding-top: 20px !important; }
+  body {
+    padding-top: 20px !important;
+  }
+
+  /* Hide Disposables & Cartridges category by ID */
+  .grid-category--id-180876996,
+  .grid-category--id-186220324,
+  .grid-category--id-186221826 {
+    display: none !important;
+  }
+
+  /* Hide vape categories and products by URL/text patterns */
+  .grid-category:has(a[href*="Disposables"]),
+  .grid-category:has(a[href*="Cartridges"]),
+  .grid-category:has(a[href*="disposable"]),
+  .grid-category:has(a[href*="cartridge"]),
+  .grid-category:has(a[title*="Disposable"]),
+  .grid-category:has(a[title*="Cartridge"]),
+  a[href*="Disposables-"],
+  a[href*="Cartridges-"],
+  a[href*="-c180876996"],
+  a[href*="-c186220324"],
+  a[href*="-c186221826"],
+  a[href*="veil"],
+  a[href*="Veil"],
+  a[href*="bar-pro"] {
+    display: none !important;
+  }
 
   /* Hide Toasted Tuesday vape promo tile */
   a[aria-label*="TOASTED TUESDAY"],
   a[aria-label*="Toasted Tuesday"],
-  a[aria-label*="toasted tuesday"],
   a[href*="toasted"][href*="tuesday"],
   a[href*="Toasted"][href*="Tuesday"],
   div:has(> a[aria-label*="TOASTED TUESDAY"]),
-  div:has(> a[aria-label*="Toasted Tuesday"]),
-  div:has(> a[href*="toasted"][href*="tuesday"]) {
+  div:has(> a[aria-label*="Toasted Tuesday"]) {
     display: none !important;
-    visibility: hidden !important;
-    opacity: 0 !important;
-    height: 0 !important;
-    width: 0 !important;
-    overflow: hidden !important;
-    margin: 0 !important;
-    padding: 0 !important;
   }
 `;
 
 const INJECT_SCRIPT = `
   (function() {
-    const style = document.createElement('style');
+    // Inject CSS
+    var style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-
-      // Try cart badge selectors (works even when hidden with CSS)
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        const badgeCount = parseInt(badge.textContent.trim()) || 0;
-        count = badgeCount;
-      }
-
-      // Always send the count
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
-    }
-
-    // Watch for checkout button clicks
-    function watchAddToBag() {
-      // Debounce - only fire once per click
-      let isTracking = false;
-
-      // Track clicks on checkout buttons
-      document.addEventListener('click', function(e) {
-        if (isTracking) return; // Ignore if already tracking
-
-        const target = e.target;
-        if (!target) return;
-
-        const text = (target.textContent || '').toLowerCase();
-        const href = (target.getAttribute('href') || '').toLowerCase();
-        const classList = target.className || '';
-
-        // Check if it's a checkout button
-        if (
-          text.includes('checkout') ||
-          text.includes('go to checkout') ||
-          text.includes('proceed to checkout') ||
-          href.includes('checkout') ||
-          classList.includes('checkout')
-        ) {
-          isTracking = true;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
-
-          // Reset after 1 second
-          setTimeout(function() {
-            isTracking = false;
-          }, 1000);
-        }
-      }, true);
-
-      // Intercept XMLHttpRequest to update cart count
-      const originalXHROpen = XMLHttpRequest.prototype.open;
-      const originalXHRSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalXHROpen.apply(this, arguments);
-      };
-
-      XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-          if (this.status >= 200 && this.status < 300) {
-            const url = this._url || '';
-            if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-              setTimeout(sendCartCount, 500);
-            }
+    // Check if element is a purchase BUTTON (not product cards)
+    function isPurchaseElement(el) {
+      if (!el) return false;
+      
+      var clickedTag = (el.tagName || '').toLowerCase();
+      var clickedCls = (el.className || '').toLowerCase();
+      
+      // SKIP if clicking on a product card/link (not a button)
+      // Product cards have grid-product class or are links to product pages
+      var parent = el;
+      for (var p = 0; p < 5 && parent; p++) {
+        var pCls = (parent.className || '').toLowerCase();
+        var pHref = (parent.getAttribute ? parent.getAttribute('href') : '') || '';
+        // If we're in a product card/grid, don't intercept unless it's actually a button
+        if (pCls.indexOf('grid-product') !== -1 || pCls.indexOf('product-card') !== -1) {
+          // Only intercept if the clicked element is a button
+          if (clickedTag !== 'button' && clickedCls.indexOf('button') === -1) {
+            return false;
           }
-        });
-        return originalXHRSend.apply(this, arguments);
-      };
-
-      // Also intercept fetch requests as backup
-      const originalFetch = window.fetch;
-      window.fetch = function(...args) {
-        const promise = originalFetch.apply(this, args);
-        const url = args[0]?.toString() || '';
-
-        if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-          promise.then(response => {
-            if (response.ok) {
-              setTimeout(sendCartCount, 500);
-            }
-            return response;
-          }).catch(() => {});
         }
-
-        return promise;
-      };
-
-      // Also watch for DOM mutations that might indicate cart update
-      const cartObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          // Check if badge was updated
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === 1) {
-              const badge = node.querySelector?.('.ec-cart-widget__count, .ec-minicart__count');
-              if (badge) {
-                sendCartCount();
-              }
-            }
-          });
-        });
-      });
-
-      // Observe the entire document for cart badge changes
-      const headerArea = document.querySelector('header') || document.body;
-      if (headerArea) {
-        cartObserver.observe(headerArea, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['class']
-        });
+        parent = parent.parentElement;
       }
+      
+      // Only check clicked element and 2 immediate parents (not whole card)
+      for (var i = 0; i < 3 && el; i++) {
+        var text = (el.innerText || el.textContent || '').toLowerCase().trim();
+        var cls = (el.className || '').toLowerCase();
+        var href = (el.getAttribute ? el.getAttribute('href') : '') || '';
+        var tag = (el.tagName || '').toLowerCase();
+        
+        // Only match actual buttons or button-like elements
+        var isButton = tag === 'button' || cls.indexOf('button') !== -1 || cls.indexOf('btn') !== -1;
+        
+        // Match by text content ONLY if it's a button element
+        if (isButton || i === 0) {
+          if (
+            text === 'add to bag' ||
+            text === 'add to cart' ||
+            text === 'add more' ||
+            text === 'go to checkout' ||
+            text === 'checkout' ||
+            text === 'view cart' ||
+            text === 'proceed to checkout'
+          ) {
+            return true;
+          }
+        }
+        
+        // Match by Ecwid button class names
+        if (
+          cls.indexOf('form-control__button') !== -1 ||
+          cls.indexOf('add-to-cart') !== -1 ||
+          cls.indexOf('add-to-bag') !== -1 ||
+          cls.indexOf('details-product-purchase__add-to-bag') !== -1
+        ) {
+          return true;
+        }
+        
+        el = el.parentElement;
+      }
+      return false;
     }
 
-    // Run immediately and on intervals
-    sendCartCount();
-    watchAddToBag();
-
-    // More aggressive initial cart count check (every 500ms for first 5 seconds)
-    let initialCheckCount = 0;
-    const initialCheck = setInterval(() => {
-      sendCartCount();
-      initialCheckCount++;
-      if (initialCheckCount >= 10) {
-        clearInterval(initialCheck);
+    // Intercept purchase button clicks
+    var clicking = false;
+    document.addEventListener('click', function(e) {
+      if (clicking) return;
+      
+      var target = e.target;
+      if (!target) return;
+      
+      if (isPurchaseElement(target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        clicking = true;
+        
+        // Get product URL from current page
+        var url = window.location.href;
+        var productId = null;
+        var m = url.match(/product\\/id=(\\d+)/i) || url.match(/-p(\\d+)$/i) || url.match(/product\\/(\\d+)/i);
+        if (m) productId = m[1];
+        
+        var productUrl = productId ? 
+          'https://greenhauscc.com/products#!/~/product/id=' + productId : 
+          url.indexOf('greenhauscc.com') !== -1 ? url : 'https://greenhauscc.com/products';
+        
+        window.ReactNativeWebView.postMessage(JSON.stringify({ 
+          type: 'OPEN_EXTERNAL_CHECKOUT',
+          url: productUrl,
+          productId: productId
+        }));
+        
+        setTimeout(function() { clicking = false; }, 2000);
+        return false;
       }
-    }, 500);
-
-    setInterval(() => {
-      sendCartCount();
-    }, 2000);
-
-    // Watch for DOM changes
-    const observer = new MutationObserver(() => {
-      sendCartCount();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    }, true);
   })();
   true;
 `;
@@ -200,10 +180,37 @@ export default function HomeTab() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const platformConfig = getPlatformConfig();
 
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [showRetry, setShowRetry] = useState(false);
+  const [currentWebViewUrl, setCurrentWebViewUrl] = useState('https://greenhauscc.com/');
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Only show retry after very long load (30 seconds)
+  useEffect(() => {
+    if (isLoading && !hasError) {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
+        setIsLoading(false);
+        setShowRetry(true);
+      }, 30000);
+    } else {
+      setShowRetry(false);
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [isLoading, hasError]);
 
   // Promo modal state
   const [promos, setPromos] = useState<PromoRecord[]>([]);
@@ -361,25 +368,304 @@ export default function HomeTab() {
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
 
+  // Open URL in external browser (works in Expo Go via Linking)
+  const openInExternalBrowser = useCallback(async (url: string) => {
+    
+    try {
+      // Use Chrome Custom Tabs for better UX
+      const result = await WebBrowser.openBrowserAsync(url, {
+        presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
+        toolbarColor: '#1E4D3A',
+        controlsColor: '#FFFFFF',
+        showTitle: true,
+      });
+    } catch (error) {
+      try {
+        await Linking.openURL(url);
+      } catch (linkError) {
+        Alert.alert(
+          'Unable to Open Browser',
+          'Please visit greenhauscc.com in your browser to complete your purchase.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+  }, []);
+
+  // Check if URL is a cart/checkout route
+  const isCartOrCheckoutRoute = useCallback((url: string) => {
+    const normalizedUrl = url.toLowerCase();
+    return (
+      normalizedUrl.includes('/cart') ||
+      normalizedUrl.includes('/checkout') ||
+      normalizedUrl.includes('/place-order') ||
+      normalizedUrl.includes('/payment') ||
+      normalizedUrl.includes('#cart') ||
+      normalizedUrl.includes('#checkout') ||
+      normalizedUrl.includes('#!/cart') ||
+      normalizedUrl.includes('#!/checkout') ||
+      normalizedUrl.includes('/products/cart')
+    );
+  }, []);
+
+  // Intercept navigation BEFORE it happens
+  const handleShouldStartLoadWithRequest = useCallback((request: WebViewNavigation) => {
+    const url = request.url || '';
+    const platformConfig = getPlatformConfig();
+    
+    // On Android where purchase flow is disabled, intercept cart/checkout and open external browser
+    if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow && isCartOrCheckoutRoute(url)) {
+      
+      // Use the last non-cart URL (the product page they were on)
+      const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
+      
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
+      }
+      openInExternalBrowser(urlToOpen);
+      
+      return false;
+    }
+    
+    return true;
+  }, [isCartOrCheckoutRoute, openInExternalBrowser, currentWebViewUrl]);
+
   const handleNavigationStateChange = (navState: any) => {
     const url = navState.url || '';
+    const platformConfig = getPlatformConfig();
 
-    // If navigated to cart page, switch to cart tab and reload it
-    if (url.includes('/cart') || url.includes('/products/cart')) {
-      // Reload cart tab to show updated items
-      const cartRef = webviewRefs.cart?.current;
-      if (cartRef) {
-        cartRef.reload();
+    // Track current URL for use when opening external browser
+    if (url && !isCartOrCheckoutRoute(url)) {
+      setCurrentWebViewUrl(url);
+    }
+
+    // If navigated to cart page
+    if (isCartOrCheckoutRoute(url)) {
+      
+      // On Android where purchase flow is disabled, open the current page in browser
+      if (Platform.OS === 'android' && !platformConfig.allowPurchaseFlow) {
+        // Use the last non-cart URL (the product page they were on)
+        const urlToOpen = currentWebViewUrl || 'https://greenhauscc.com/products';
+        
+        if (Platform.OS === 'android') {
+          ToastAndroid.show('Opening product in browser - please add to cart there to checkout', ToastAndroid.LONG);
+        }
+        openInExternalBrowser(urlToOpen);
+        ref.current?.goBack();
+        return;
       }
-      router.push('/(tabs)/cart');
+      
+      // iOS: allow normal cart flow if cart tab exists
+      if (platformConfig.allowPurchaseFlow) {
+        const cartRef = webviewRefs.cart?.current;
+        if (cartRef) {
+          cartRef.reload();
+        }
+        router.push('/(tabs)/cart');
+      }
     }
   };
 
+  const handleRetry = () => {
+    setShowRetry(false);
+    setHasError(false);
+    setIsLoading(true);
+    ref.current?.reload();
+  };
+
+  const handleOpenDirections = useCallback((address: string) => {
+    const url = Platform.select({
+      ios: `maps://app?daddr=${encodeURIComponent(address)}`,
+      android: `google.navigation:q=${encodeURIComponent(address)}`,
+      default: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`,
+    });
+
+    Linking.canOpenURL(url).then((supported) => {
+      if (supported) {
+        Linking.openURL(url);
+      } else {
+        // Fallback to browser-based Google Maps
+        const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+        Linking.openURL(fallbackUrl);
+      }
+    }).catch(() => {
+      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`;
+      Linking.openURL(fallbackUrl);
+    });
+  }, []);
+
+  // Load promos for informational mode (reuse existing fetchPromos but only in informational mode)
+  useEffect(() => {
+    if (platformConfig.informationalOnly && selectedStoreId) {
+      fetchPromos();
+    }
+  }, [platformConfig.informationalOnly, selectedStoreId, fetchPromos]);
+
+  // If informational only mode (Google Play compliant), show info screen instead of WebView
+  if (platformConfig.informationalOnly) {
+    return (
+      <View style={styles.container}>
+        <ScrollView style={styles.infoContainer} contentContainerStyle={styles.infoContent}>
+          <Text style={styles.infoTitle}>Welcome to GreenHaus</Text>
+          <Text style={styles.infoSubtitle}>Your trusted cannabis retailer in Tennessee</Text>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="storefront-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Store Locations</Text>
+
+            <TouchableOpacity
+              style={styles.locationCard}
+              onPress={() => handleOpenDirections('851 S Willow Ave Suite 115, Cookeville, TN 38501')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.locationHeader}>
+                <Text style={styles.locationName}>Cookeville</Text>
+                <Ionicons name="navigate-outline" size={20} color="#1E4D3A" />
+              </View>
+              <Text style={styles.locationAddress}>
+                851 S Willow Ave Suite 115{'\n'}
+                Cookeville, TN 38501
+              </Text>
+              <Text style={styles.locationPhone}>Phone: (931) 651-1143</Text>
+              <Text style={styles.directionsPrompt}>Tap for directions</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.locationCard}
+              onPress={() => handleOpenDirections('750 US-70 E Suite 106, Crossville, TN 38555')}
+              activeOpacity={0.7}
+            >
+              <View style={styles.locationHeader}>
+                <Text style={styles.locationName}>Crossville</Text>
+                <Ionicons name="navigate-outline" size={20} color="#1E4D3A" />
+              </View>
+              <Text style={styles.locationAddress}>
+                750 US-70 E Suite 106{'\n'}
+                Crossville, TN 38555
+              </Text>
+              <Text style={styles.locationPhone}>Phone: (931) 337-0880</Text>
+              <Text style={styles.directionsPrompt}>Tap for directions</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="time-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Hours</Text>
+            <Text style={styles.infoText}>
+              <Text style={styles.bold}>Cookeville:</Text>{'\n'}
+              Mon - Sat: 9:00 AM - 9:00 PM{'\n'}
+              Sun: 10:00 AM - 8:00 PM{'\n\n'}
+              <Text style={styles.bold}>Crossville:</Text>{'\n'}
+              Daily: 10:00 AM - 8:00 PM
+            </Text>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="megaphone-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Announcements</Text>
+            {loadingPromos ? (
+              <View style={styles.promosLoading}>
+                <ActivityIndicator size="small" color="#1E4D3A" />
+                <Text style={styles.loadingText}>Loading announcements...</Text>
+              </View>
+            ) : promos.length > 0 ? (
+              promos.map((promo) => (
+                <View key={promo.id} style={styles.announcementCard}>
+                  <View style={styles.announcementHeader}>
+                    <Text style={styles.announcementTitle}>{promo.title}</Text>
+                    {promo.startsAt && (
+                      <Text style={styles.announcementDate}>
+                        {promo.startsAt.toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </Text>
+                    )}
+                  </View>
+                  {promo.body && (
+                    <Text style={styles.announcementBody}>{promo.body}</Text>
+                  )}
+                </View>
+              ))
+            ) : (
+              <Text style={styles.noAnnouncementsText}>No announcements at this time.</Text>
+            )}
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="globe-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>Visit Our Website</Text>
+            <Text style={styles.infoText}>
+              For the full shopping experience, browse our products and place orders online:
+            </Text>
+            <TouchableOpacity
+              style={styles.websiteButton}
+              onPress={() => Linking.openURL('https://greenhauscc.com')}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.websiteButtonText}>greenhauscc.com</Text>
+              <Ionicons name="open-outline" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.infoSection}>
+            <Ionicons name="information-circle-outline" size={32} color="#1E4D3A" />
+            <Text style={styles.sectionTitle}>About GreenHaus</Text>
+            <Text style={styles.infoText}>
+              GreenHaus is Tennessee's premier cannabis retailer, offering a curated selection of premium products and exceptional customer service. Visit our locations to explore our full range of offerings and speak with our knowledgeable staff.
+            </Text>
+          </View>
+
+          <View style={styles.disclaimer}>
+            <Text style={styles.disclaimerText}>
+              This app is for informational and educational purposes only. No purchases can be made through this app. Please visit our physical store locations for shopping.
+            </Text>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {isLoading && (
+      {hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorTitle}>Unable to Load Store</Text>
+          <Text style={styles.errorText}>
+            The emulator cannot connect to the internet.{'\n'}
+            Try the other tabs to explore the app!
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setHasError(false);
+              setIsLoading(true);
+              ref.current?.reload();
+            }}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {isLoading && !hasError && !showRetry && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#5DB075" />
+          <Text style={styles.loadingText}>Loading store...</Text>
+        </View>
+      )}
+      {showRetry && !hasError && (
+        <View style={styles.errorOverlay}>
+          <Text style={styles.errorTitle}>Page Taking Too Long</Text>
+          <Text style={styles.errorText}>
+            The store is taking longer than expected to load.{'\n'}
+            Check your connection and try again.
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={handleRetry}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       )}
       <WebView
@@ -387,33 +673,72 @@ export default function HomeTab() {
         source={{ uri: 'https://greenhauscc.com/' }}
         style={styles.webview}
         originWhitelist={['*']}
-        allowsInlineMediaPlayback
-        mediaPlaybackRequiresUserAction={false}
-        allowFileAccess
-        allowUniversalAccessFromFileURLs
-        mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
-        pullToRefreshEnabled={true}
+        cacheEnabled={true}
+        cacheMode="LOAD_CACHE_ELSE_NETWORK"
+        androidLayerType="hardware"
+        sharedCookiesEnabled={true}
+        injectedJavaScriptBeforeContentLoaded={`
+          // Hide everything initially to prevent flash
+          document.documentElement.style.visibility = 'hidden';
+          var style = document.createElement('style');
+          style.textContent = \`${INJECTED_CSS}\`;
+          (document.head || document.documentElement).appendChild(style);
+          // Show content after CSS is applied
+          setTimeout(function() { document.documentElement.style.visibility = 'visible'; }, 50);
+          true;
+        `}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          setIsLoading(true);
+          setShowRetry(false);
+        }}
         onLoadEnd={() => {
           setIsLoading(false);
           setRefreshing(false);
-          ref.current?.injectJavaScript(INJECT_SCRIPT);
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
         }}
+        onError={(syntheticEvent) => {
+          const { nativeEvent } = syntheticEvent;
+          console.warn('WebView error:', nativeEvent);
+          setHasError(true);
+          setIsLoading(false);
+        }}
+        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
             if (data.type === 'CART_COUNT') {
               setCartCount(data.count);
+            } else if (data.type === 'OPEN_EXTERNAL_CHECKOUT') {
+              // Open external browser for checkout
+              
+              const url = data.url || 'https://greenhauscc.com/products';
+              const productName = data.productName;
+              
+              
+              // Show helpful message telling user to re-add to cart
+              if (Platform.OS === 'android') {
+                if (productName) {
+                  ToastAndroid.show(`Opening "${productName}" - please add to cart in browser to checkout`, ToastAndroid.LONG);
+                } else {
+                  ToastAndroid.show('Opening store - please add items to cart in browser to checkout', ToastAndroid.LONG);
+                }
+              }
+              
+              openInExternalBrowser(url);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
               }
             }
-          } catch (e) {}
+          } catch (e) {
+          }
         }}
         renderLoading={() => (
           <View style={styles.loadingOverlay}>
@@ -532,6 +857,168 @@ const styles = StyleSheet.create({
   webview: {
     flex: 1,
   },
+  infoContainer: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  infoContent: {
+    padding: 24,
+  },
+  infoTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: '#1E4D3A',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  infoSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  infoSection: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1E4D3A',
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  infoText: {
+    fontSize: 16,
+    color: '#374151',
+    lineHeight: 24,
+  },
+  bold: {
+    fontWeight: '600',
+    color: '#1E4D3A',
+  },
+  locationCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  locationName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E4D3A',
+  },
+  locationAddress: {
+    fontSize: 15,
+    color: '#374151',
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  locationPhone: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  directionsPrompt: {
+    fontSize: 13,
+    color: '#1E4D3A',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  promosLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  announcementCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  announcementHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+  },
+  announcementTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#92400E',
+    flex: 1,
+    marginRight: 8,
+  },
+  announcementDate: {
+    fontSize: 12,
+    color: '#92400E',
+    opacity: 0.7,
+  },
+  announcementBody: {
+    fontSize: 14,
+    color: '#92400E',
+    lineHeight: 20,
+  },
+  noAnnouncementsText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+  websiteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1E4D3A',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  websiteButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  disclaimer: {
+    marginTop: 24,
+    padding: 16,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  disclaimerText: {
+    fontSize: 13,
+    color: '#92400E',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   loadingOverlay: {
     position: 'absolute',
     top: 0,
@@ -542,6 +1029,47 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  errorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+    zIndex: 1000,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E4D3A',
+    marginBottom: 12,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  retryButton: {
+    backgroundColor: '#1E4D3A',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   fab: {
     position: "absolute",

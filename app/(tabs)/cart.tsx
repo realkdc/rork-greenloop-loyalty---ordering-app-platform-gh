@@ -1,12 +1,13 @@
 import React, { useRef, useState, useEffect } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useRouter } from "expo-router";
+import { useRouter, Redirect } from "expo-router";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
   /* Hide header, footer, and breadcrumbs */
@@ -138,6 +139,13 @@ const CART_LISTENER_SCRIPT = `
 `;
 
 export default function CartTab() {
+  const platformConfig = getPlatformConfig();
+
+  // Android: Redirect to home since cart is disabled for Google Play compliance
+  if (!platformConfig.showCart) {
+    return <Redirect href="/(tabs)/home" />;
+  }
+
   const ref = useRef<WebView>(null);
   webviewRefs.cart = ref;
   const { setCartCount } = useApp();
@@ -188,6 +196,10 @@ export default function CartTab() {
         javaScriptEnabled
         domStorageEnabled
         pullToRefreshEnabled={true}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        cacheEnabled={true}
+        cacheMode="LOAD_DEFAULT"
         injectedJavaScript={CART_LISTENER_SCRIPT}
         onLoadStart={() => {
           console.log('[Cart] Load started');

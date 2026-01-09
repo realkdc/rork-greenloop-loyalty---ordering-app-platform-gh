@@ -1,7 +1,7 @@
 {
   "cli": {
     "appVersionSource": "local",
-    "version": ">=16.24.1"
+    "version": ">=16.28.0"
   },
   "build": {
     "development": {
@@ -25,11 +25,16 @@
     },
     "production": {
       "distribution": "store",
+      "node": "20.18.0",
       "ios": {
         "resourceClass": "medium"
       },
       "android": {
-        "resourceClass": "medium"
+        "resourceClass": "medium",
+        "buildType": "app-bundle",
+        "env": {
+          "EXPO_NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+        }
       }
     }
   },

@@ -345,15 +345,13 @@ export const INJECTED_JS = `
     document.addEventListener('DOMContentLoaded', detectMagicLinkRequest);
   }
 
-
-
   function readLoyalty(){
     try {
       const el = Array.from(document.querySelectorAll('body *')).find(e => 
-        /earn\\s*\\$?\\d+(\\.\\d{2})?\\s*Loyalty/i.test(e.textContent||'')
+        /earn\s*\$?\d+(\.\d{2})?\s*Loyalty/i.test(e.textContent||'')
       );
       if(el){
-        const m = (el.textContent||'').match(/\\$?([0-9]+(?:\\.[0-9]{1,2})?)/);
+        const m = (el.textContent||'').match(/\$?([0-9]+(?:\.[0-9]{1,2})?)/);
         if(m && window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'LOYALTY_HINT', 
@@ -368,10 +366,10 @@ export const INJECTED_JS = `
     try {
       const u = location.href;
       let t = 'HOME';
-      if(/\\/products\\/cart/i.test(u)) t='CART';
-      else if(/\\/account\\/orders/i.test(u)) t='ORDERS';
-      else if(/\\/account(\\/?$|\\?)/i.test(u)) t='PROFILE';
-      else if(/\\/products/i.test(u)) t='SEARCH';
+      if(/\/products\/cart/i.test(u)) t='CART';
+      else if(/\/account\/orders/i.test(u)) t='ORDERS';
+      else if(/\/account(\/?$|\?)/i.test(u)) t='PROFILE';
+      else if(/\/products/i.test(u)) t='SEARCH';
       
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -383,7 +381,6 @@ export const INJECTED_JS = `
     } catch(e) {}
   }
 
- 
   readLoyalty(); 
   routeHint();
   
@@ -395,5 +392,93 @@ export const INJECTED_JS = `
   }, true);
 
   window.scrollTo(0, 0);
+})();
+`;
+
+export const ANDROID_CHECKOUT_BLOCKER_SCRIPT = `
+(function() {
+  function addStyle(css){
+    var el = document.createElement('style'); 
+    el.type='text/css'; 
+    el.appendChild(document.createTextNode(css)); 
+    if (document.head) {
+      document.head.appendChild(el);
+    } else {
+      document.addEventListener('DOMContentLoaded', function() {
+        document.head.appendChild(el);
+      });
+    }
+  }
+
+  // CSS to hide checkout buttons immediately
+  const HIDE_CHECKOUT_CSS = \`
+    /* Hide specific Ecwid/Lightspeed checkout buttons */
+    .ec-cart__button--checkout,
+    .ec-cart-summary__checkout-button,
+    .ec-store .ec-cart__button--checkout,
+    [data-action="checkout"],
+    /* Product page "Buy Now" or "Go to Checkout" buttons */
+    .ec-product-details__buy-now,
+    .ec-product-details__button--buy-now,
+    .ec-product-details__add-to-cart,
+    button[class*="checkout" i],
+    button[class*="buy-now" i],
+    a[href*="/checkout" i],
+    a[href*="/cart" i] { 
+      display: none !important; 
+    }
+  \`;
+  
+  addStyle(HIDE_CHECKOUT_CSS);
+
+  function blockCheckout() {
+    try {
+      // Find all elements that might be checkout buttons
+      const checkoutSelectors = [
+        'button[class*="checkout" i]',
+        'button[class*="buy-now" i]',
+        '.ec-cart__button--checkout',
+        '.ec-product-details__buy-now',
+        'a[href*="/checkout" i]',
+        'a[href*="/cart" i]'
+      ];
+      
+      checkoutSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          if (el.style.display !== 'none') {
+            el.style.display = 'none';
+          }
+          
+          // Replace with a custom button or link if it doesn't exist yet
+          if (!el.nextSibling || !el.nextSibling.classList || !el.nextSibling.classList.contains('gh-android-checkout-msg')) {
+            const msg = document.createElement('div');
+            msg.className = 'gh-android-checkout-msg';
+            msg.style.padding = '15px';
+            msg.style.margin = '10px 0';
+            msg.style.background = '#f8f9fa';
+            msg.style.border = '1px solid #dee2e6';
+            msg.style.borderRadius = '8px';
+            msg.style.textAlign = 'center';
+            msg.innerHTML = '<p style="margin:0 0 10px 0; color:#333; font-weight:bold;">Purchase on Website</p>' +
+                          '<a href="https://greenhauscc.com/products/cart" style="display:inline-block; padding:10px 20px; background:#0F4C3A; color:white; border-radius:6px; text-decoration:none; font-weight:bold;">Go to Website to Checkout</a>';
+            el.parentNode.insertBefore(msg, el.nextSibling);
+          }
+        });
+      });
+    } catch(e) {
+      console.log('Blocker error:', e);
+    }
+  }
+
+  // Run immediately and monitor
+  try {
+    new MutationObserver(blockCheckout).observe(document.documentElement, {
+      childList: true, 
+      subtree: true
+    });
+  } catch(e) {}
+
+  blockCheckout();
+  setInterval(blockCheckout, 2000);
 })();
 `;

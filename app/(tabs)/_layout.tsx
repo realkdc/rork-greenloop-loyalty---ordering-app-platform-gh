@@ -1,12 +1,12 @@
 import { Tabs } from "expo-router";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
 import React from "react";
 import { debugLog } from "@/lib/logger";
-import { WEBVIEW_MINIMAL_MODE } from "@/constants/config";
+import { WEBVIEW_MINIMAL_MODE, getPlatformConfig } from "@/constants/config";
 import { trackAnalyticsEvent } from "@/services/analytics";
 
 
@@ -49,11 +49,17 @@ function TabsLayout() {
   const app = useApp?.() as ReturnType<typeof useApp> | undefined;
   const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
+  const platformConfig = getPlatformConfig();
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
   debugLog('[TabLayout] 📊 Cart count:', cartCount);
   debugLog('[TabLayout] 🎯 Should show badge:', cartCount > 0);
   debugLog('[TabLayout] 🔢 Badge value:', cartCount > 99 ? '99+' : cartCount);
+  debugLog('[TabLayout] 📱 Platform:', Platform.OS, '| Show cart:', platformConfig.showCart);
+
+  // Filter tabs based on platform - hide cart on Android
+  debugLog('[TabLayout] 🔍 Platform.OS:', Platform.OS);
+  debugLog('[TabLayout] 🔍 platformConfig:', JSON.stringify(platformConfig));
 
   return (
     <Tabs
@@ -67,84 +73,241 @@ function TabsLayout() {
         freezeOnBlur: false,
       }}
     >
-      {(["home", "search", "cart", "orders", "profile"] as const).map((name) => {
-        const isHome = name === "home";
-        const iconConfig = TAB_ICONS[name];
-        if (!iconConfig) {
-          debugLog('Missing icon config for tab:', name);
-          return null;
-        }
-        
-        return (
-          <Tabs.Screen
-            key={name}
-            name={name}
-            options={{
-              title: TAB_LABELS[name] || name,
-              headerShown: false,
-              // Native badge as a fallback to ensure cart count is always visible
-              ...(name === 'cart'
-                ? {
-                    tabBarBadge: cartCount > 0 ? (cartCount > 99 ? '99+' : String(cartCount)) : undefined,
-                    tabBarBadgeStyle: { backgroundColor: '#ef4444', color: '#fff' },
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: TAB_LABELS.home,
+          headerShown: false,
+          tabBarIcon: ({ focused, color, size }) => {
+            const iconName = focused ? TAB_ICONS.home.filled : TAB_ICONS.home.outline;
+            return (
+              <View style={styles.iconWrapper} testID="home-tab-icon">
+                <Ionicons name={iconName} size={size || 24} color={color || "#9ca3af"} />
+              </View>
+            );
+          },
+        }}
+        listeners={{
+          tabPress: () => {
+            debugLog('[Tabs] 📱 Tab home pressed');
+            trackAnalyticsEvent('VIEW_TAB', { tab: 'Home' }, user?.uid);
+            const ref = webviewRefs.home?.current;
+            const targetUrl = TAB_URLS.home;
+            if (!ref || !targetUrl) return;
+            try {
+              ref.injectJavaScript(`
+                (function(){
+                  try {
+                    var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
+                    var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
+                    if (currentUrl === targetUrl) {
+                      window.location.reload();
+                    } else {
+                      window.location.href = targetUrl;
+                    }
+                  } catch(e) {
+                    console.error('Tab navigation error:', e);
                   }
-                : {}),
-              tabBarIcon: ({ focused, color, size }: { focused: boolean; color: string; size: number }) => {
-                const iconName = focused ? iconConfig.filled : iconConfig.outline;
-                return (
-                  <View style={styles.iconWrapper} testID={`${name}-tab-icon`}>
-                    <Ionicons
-                      name={iconName}
-                      size={size || 24}
-                      color={color || "#9ca3af"}
-                    />
-                  </View>
-                );
-              },
-            }}
-            listeners={{
-              tabPress: () => {
-                debugLog(`[Tabs] 📱 Tab ${name} pressed`);
+                  return true;
+                })();
+                true;
+              `);
+            } catch (e) {
+              debugLog('[Tabs] ❌ Error navigating home:', e);
+            }
+          },
+        }}
+      />
 
-                // Track tab view
-                trackAnalyticsEvent('VIEW_TAB', { tab: TAB_LABELS[name] as any }, user?.uid);
+      <Tabs.Screen
+        name="search"
+        options={{
+          title: TAB_LABELS.search,
+          headerShown: false,
+          href: platformConfig.showBrowse ? undefined : null, // null = completely hide from navigation
+          tabBarIcon: ({ focused, color, size }) => {
+            const iconName = focused ? TAB_ICONS.search.filled : TAB_ICONS.search.outline;
+            return (
+              <View style={styles.iconWrapper} testID="search-tab-icon">
+                <Ionicons name={iconName} size={size || 24} color={color || "#9ca3af"} />
+              </View>
+            );
+          },
+        }}
+        listeners={{
+          tabPress: () => {
+            debugLog('[Tabs] 📱 Tab search pressed');
+            trackAnalyticsEvent('VIEW_TAB', { tab: 'Browse' }, user?.uid);
+            const ref = webviewRefs.search?.current;
+            const targetUrl = TAB_URLS.search;
+            if (!ref || !targetUrl) return;
+            try {
+              ref.injectJavaScript(`
+                (function(){
+                  try {
+                    var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
+                    var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
+                    if (currentUrl === targetUrl) {
+                      window.location.reload();
+                    } else {
+                      window.location.href = targetUrl;
+                    }
+                  } catch(e) {
+                    console.error('Tab navigation error:', e);
+                  }
+                  return true;
+                })();
+                true;
+              `);
+            } catch (e) {
+              debugLog('[Tabs] ❌ Error navigating search:', e);
+            }
+          },
+        }}
+      />
 
-                const ref = webviewRefs[name]?.current;
-                const targetUrl = TAB_URLS[name];
+      {/* Cart tab - hide on Android */}
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: TAB_LABELS.cart,
+          headerShown: false,
+          href: platformConfig.showCart ? undefined : null, // null = completely hide from navigation
+          tabBarBadge: cartCount > 0 ? (cartCount > 99 ? '99+' : String(cartCount)) : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#ef4444', color: '#fff' },
+          tabBarIcon: ({ focused, color, size }) => {
+            const iconName = focused ? TAB_ICONS.cart.filled : TAB_ICONS.cart.outline;
+            return (
+              <View style={styles.iconWrapper} testID="cart-tab-icon">
+                <Ionicons name={iconName} size={size || 24} color={color || "#9ca3af"} />
+              </View>
+            );
+          },
+        }}
+        listeners={{
+          tabPress: () => {
+            debugLog('[Tabs] 📱 Tab cart pressed');
+            trackAnalyticsEvent('VIEW_TAB', { tab: 'Cart' }, user?.uid);
+            const ref = webviewRefs.cart?.current;
+            const targetUrl = TAB_URLS.cart;
+            if (!ref || !targetUrl) return;
+            try {
+              ref.injectJavaScript(`
+                (function(){
+                  try {
+                    var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
+                    var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
+                    if (currentUrl === targetUrl) {
+                      window.location.reload();
+                    } else {
+                      window.location.href = targetUrl;
+                    }
+                  } catch(e) {
+                    console.error('Tab navigation error:', e);
+                  }
+                  return true;
+                })();
+                true;
+              `);
+            } catch (e) {
+              debugLog('[Tabs] ❌ Error navigating cart:', e);
+            }
+          },
+        }}
+      />
 
-                if (!ref || !targetUrl) return;
+      <Tabs.Screen
+        name="orders"
+        options={{
+          title: TAB_LABELS.orders,
+          headerShown: false,
+          href: platformConfig.showOrders ? undefined : null, // null = completely hide from navigation
+          tabBarIcon: ({ focused, color, size }) => {
+            const iconName = focused ? TAB_ICONS.orders.filled : TAB_ICONS.orders.outline;
+            return (
+              <View style={styles.iconWrapper} testID="orders-tab-icon">
+                <Ionicons name={iconName} size={size || 24} color={color || "#9ca3af"} />
+              </View>
+            );
+          },
+        }}
+        listeners={{
+          tabPress: () => {
+            debugLog('[Tabs] 📱 Tab orders pressed');
+            trackAnalyticsEvent('VIEW_TAB', { tab: 'Orders' }, user?.uid);
+            const ref = webviewRefs.orders?.current;
+            const targetUrl = TAB_URLS.orders;
+            if (!ref || !targetUrl) return;
+            try {
+              ref.injectJavaScript(`
+                (function(){
+                  try {
+                    var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
+                    var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
+                    if (currentUrl === targetUrl) {
+                      window.location.reload();
+                    } else {
+                      window.location.href = targetUrl;
+                    }
+                  } catch(e) {
+                    console.error('Tab navigation error:', e);
+                  }
+                  return true;
+                })();
+                true;
+              `);
+            } catch (e) {
+              debugLog('[Tabs] ❌ Error navigating orders:', e);
+            }
+          },
+        }}
+      />
 
-                try {
-                  // Navigate to the tab's home URL
-                  debugLog(`[Tabs] 🔄 Navigating ${name} tab to ${targetUrl}`);
-                  ref.injectJavaScript(`
-                    (function(){
-                      try {
-                        var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
-                        var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
-
-                        // If already exactly on the target page, reload
-                        if (currentUrl === targetUrl) {
-                          window.location.reload();
-                        } else {
-                          // Navigate to the tab's home URL
-                          window.location.href = targetUrl;
-                        }
-                      } catch(e) {
-                        console.error('Tab navigation error:', e);
-                      }
-                      return true;
-                    })();
-                    true;
-                  `);
-                } catch (e) {
-                  debugLog(`[Tabs] ❌ Error navigating ${name}:`, e);
-                }
-              },
-            }}
-          />
-        );
-      })}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: TAB_LABELS.profile,
+          headerShown: false,
+          tabBarIcon: ({ focused, color, size }) => {
+            const iconName = focused ? TAB_ICONS.profile.filled : TAB_ICONS.profile.outline;
+            return (
+              <View style={styles.iconWrapper} testID="profile-tab-icon">
+                <Ionicons name={iconName} size={size || 24} color={color || "#9ca3af"} />
+              </View>
+            );
+          },
+        }}
+        listeners={{
+          tabPress: () => {
+            debugLog('[Tabs] 📱 Tab profile pressed');
+            trackAnalyticsEvent('VIEW_TAB', { tab: 'Account' }, user?.uid);
+            const ref = webviewRefs.profile?.current;
+            const targetUrl = TAB_URLS.profile;
+            if (!ref || !targetUrl) return;
+            try {
+              ref.injectJavaScript(`
+                (function(){
+                  try {
+                    var currentUrl = window.location.href.replace(/\\/$/, '').split('?')[0];
+                    var targetUrl = '${targetUrl}'.replace(/\\/$/, '');
+                    if (currentUrl === targetUrl) {
+                      window.location.reload();
+                    } else {
+                      window.location.href = targetUrl;
+                    }
+                  } catch(e) {
+                    console.error('Tab navigation error:', e);
+                  }
+                  return true;
+                })();
+                true;
+              `);
+            } catch (e) {
+              debugLog('[Tabs] ❌ Error navigating profile:', e);
+            }
+          },
+        }}
+      />
     </Tabs>
   );
 }

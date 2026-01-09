@@ -3,6 +3,7 @@
 # dependencies
 node_modules/
 node_modules/.cache/
+bun.lock
 
 # Expo / Web output
 .expo/
@@ -58,8 +59,15 @@ Simulator Screenshot -*
 *.tsbuildinfo
 .vercel
 
-# Generated CSV exports from Lightspeed scripts
+# Analytics & temporary data files
 *.csv
 !customer_analytics_master.csv  # Exception: Master CSV needed for GitHub Actions
 recent_sales_*.csv
 last_*.csv
+.analytics-archive/
+.analytics-cache/
+archive/
+
+# Service account keys (keep local only)
+fcm-service-account.json
+google-services.json.tmp

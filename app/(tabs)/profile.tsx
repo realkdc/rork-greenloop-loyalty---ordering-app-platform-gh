@@ -1,12 +1,14 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
 import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking, Modal, TextInput } from "react-native";
 import { WebView } from "react-native-webview";
+import type { WebViewNavigation } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { submitAccountDeletionRequest } from "@/services/accountDeletion";
+import { getPlatformConfig } from "@/constants/config";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -22,11 +24,14 @@ const INJECTED_CSS = `
   }
 `;
 
-const INJECT_SCRIPT = `
+const getInjectScript = (isAndroidGooglePlay: boolean) => `
   (function() {
     const style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
+
+    // Platform detection for Google Play compliance
+    const isAndroidGooglePlay = ${isAndroidGooglePlay};
 
     // Hide headers, footers, and breadcrumbs
     function hideUIElements() {
@@ -35,6 +40,34 @@ const INJECT_SCRIPT = `
           el.style.display = 'none';
         });
       });
+
+      // Block "Start Shopping" and similar CTA buttons on Google Play version
+      if (isAndroidGooglePlay) {
+        // Block links and buttons that navigate to shopping
+        document.querySelectorAll('a, button').forEach(el => {
+          const text = (el.textContent || '').toLowerCase();
+          const href = (el.getAttribute('href') || '').toLowerCase();
+
+          if (
+            text.includes('start shopping') ||
+            text.includes('shop now') ||
+            text.includes('browse') ||
+            text.includes('continue shopping') ||
+            text.includes('view products') ||
+            text.includes('shop our') ||
+            href.includes('/products') ||
+            href.includes('/shop') ||
+            href.includes('/browse') ||
+            href.includes('/catalog') ||
+            href.includes('#!/products') ||
+            href.includes('#!/shop')
+          ) {
+            el.style.display = 'none';
+            el.style.visibility = 'hidden';
+            el.style.pointerEvents = 'none';
+          }
+        });
+      }
     }
 
     // Run immediately and on DOM changes
@@ -158,6 +191,7 @@ export default function ProfileTab() {
   webviewRefs.profile = ref;
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const platformConfig = getPlatformConfig();
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
@@ -166,6 +200,27 @@ export default function ProfileTab() {
   const hasAppliedLinkRef = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+
+  // Block navigation to transactional pages on Google Play version
+  const handleShouldStartLoadWithRequest = useCallback((request: WebViewNavigation) => {
+    const url = request.url || '';
+
+    if (platformConfig.informationalOnly) {
+      // Allow account page and auth-related pages
+      if (url.includes('/account') || url.includes('greenhauscc.com/') && !url.includes('/products')) {
+        return true;
+      }
+
+      // Block cart, checkout, product pages
+      const blockedPaths = ['/cart', '/checkout', '/products', '/place-order', '/payment', '#!/cart', '#!/checkout', '#!/product'];
+      if (blockedPaths.some(path => url.toLowerCase().includes(path))) {
+        console.log('[Profile] Blocked navigation to transactional page:', url);
+        return false;
+      }
+    }
+
+    return true;
+  }, [platformConfig.informationalOnly]);
 
   // Force hide spinner after 8 seconds if WebView is stuck
   useEffect(() => {
@@ -247,20 +302,26 @@ export default function ProfileTab() {
     }
   }, []);
 
-  const handleOpenMail = useCallback(() => {
-    const mailUrl = Platform.select({
-      ios: 'message://',
-      android: 'content://com.android.email.provider',
-      default: 'mailto:',
-    });
-
-    Linking.canOpenURL(mailUrl).then((supported) => {
-      if (supported) {
-        Linking.openURL(mailUrl);
-      } else {
+  const handleOpenMail = useCallback(async () => {
+    if (Platform.OS === 'android') {
+      // On Android Google Play version, just show the paste banner with instructions
+      // Android doesn't have a reliable universal "open email inbox" intent
+      console.log('Android: Showing paste banner with instructions');
+      setShowPasteButton(true);
+    } else {
+      // iOS - use message://
+      const mailUrl = 'message://';
+      try {
+        const supported = await Linking.canOpenURL(mailUrl);
+        if (supported) {
+          await Linking.openURL(mailUrl);
+        } else {
+          Alert.alert('Cannot Open Mail', 'Please open your mail app manually to get the sign-in link.');
+        }
+      } catch (e) {
         Alert.alert('Cannot Open Mail', 'Please open your mail app manually to get the sign-in link.');
       }
-    });
+    }
   }, []);
 
   const handleMessage = useCallback((event: any) => {
@@ -379,8 +440,15 @@ export default function ProfileTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        thirdPartyCookiesEnabled={true}
+        sharedCookiesEnabled={true}
+        cacheEnabled={true}
+        incognito={false}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
         pullToRefreshEnabled={true}
-        injectedJavaScript={INJECT_SCRIPT}
+        injectedJavaScript={getInjectScript(platformConfig.informationalOnly)}
+        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
         onLoadStart={() => {
           console.log('[Profile] Load started');
           setIsLoading(true);
@@ -393,7 +461,7 @@ export default function ProfileTab() {
             clearTimeout(loadingTimeoutRef.current);
             loadingTimeoutRef.current = null;
           }
-          ref.current?.injectJavaScript(INJECT_SCRIPT);
+          ref.current?.injectJavaScript(getInjectScript(platformConfig.informationalOnly));
         }}
         onError={(error) => {
           console.error('[Profile] WebView error:', error.nativeEvent);
@@ -406,7 +474,7 @@ export default function ProfileTab() {
           setRefreshing(false);
         }}
         onMessage={handleMessage}
-        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
         renderLoading={() => (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#5DB075" />

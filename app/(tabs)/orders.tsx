@@ -244,6 +244,10 @@ export default function OrdersTab() {
         javaScriptEnabled
         domStorageEnabled
         pullToRefreshEnabled={true}
+        androidHardwareAccelerationDisabled={false}
+        androidLayerType="hardware"
+        cacheEnabled={true}
+        cacheMode="LOAD_DEFAULT"
         injectedJavaScript={INJECT_SCRIPT}
         onLoadStart={() => {
           console.log('[Orders] Load started');

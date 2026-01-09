@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export interface BrandConfig {
   brandName: string;
   primaryColor: string;
@@ -48,8 +50,38 @@ export const SAFE_MODE = false; // Disable content blurring in development; set 
 // Hide vape-related tiles/categories without using SAFE_MODE blurring
 export const HIDE_VAPE_CONTENT = true;
 // Temporary debug switch: when true, disable nearly all WebView injections/customizations
-export const WEBVIEW_MINIMAL_MODE = true;
+export const WEBVIEW_MINIMAL_MODE = false;
 
 // Review flags - Keep auto-login but NO visible demo messaging
 export const REVIEW_DEMO_FAKE_AUTH = false; // Disabled - Apple rejects visible demo mode
 export const REVIEW_DEMO_FAKE_CHECKOUT = false; // Disabled - Apple rejects fake checkout
+
+// Platform-specific configuration for Google Play compliance
+export const PLATFORM_CONFIG = {
+  // iOS: Full functionality including checkout
+  ios: {
+    enableCheckout: true,
+    showCart: true,
+    showBrowse: true,
+    showOrders: true,
+    allowPurchaseFlow: true,
+    informationalOnly: false,
+  },
+  // Android Google Play: Completely non-transactional - no catalog, no cart, no orders
+  android: {
+    enableCheckout: false,
+    showCart: false,
+    showBrowse: false, // No product catalog
+    showOrders: false, // No order history
+    allowPurchaseFlow: false,
+    informationalOnly: true, // Show info/education only
+  },
+};
+
+// Helper to get current platform config
+export const getPlatformConfig = () => {
+  const config = PLATFORM_CONFIG[Platform.OS as 'ios' | 'android'] || PLATFORM_CONFIG.ios;
+  console.log('[CONFIG] 🔍 Platform.OS:', Platform.OS);
+  console.log('[CONFIG] 🔍 Selected config:', JSON.stringify(config));
+  return config;
+};
