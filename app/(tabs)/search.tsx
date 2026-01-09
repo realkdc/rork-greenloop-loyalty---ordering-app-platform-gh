@@ -1,8 +1,9 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Platform, Linking, ToastAndroid, Alert } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Platform, Linking, ToastAndroid, Alert, BackHandler } from "react-native";
 import { WebView } from "react-native-webview";
 import type { WebViewNavigation } from "react-native-webview";
 import * as WebBrowser from "expo-web-browser";
+import { useFocusEffect } from "@react-navigation/native";
 import { webviewRefs } from "./_layout";
 import { useRouter } from "expo-router";
 import { useApp } from "@/contexts/AppContext";
@@ -57,9 +58,51 @@ const INJECTED_CSS = `
   }
 `;
 
-const INJECT_SCRIPT = `
+// CSS to hide prices and add-to-cart buttons (for Android Google Play compliance)
+const ANDROID_COMPLIANCE_CSS = `
+  /* Hide all prices */
+  .ec-price, .ec-price-item, .price, .product-price,
+  .grid-product__price, .ec-product__price, 
+  [class*="price"], [data-price], [class*="Price"],
+  .ec-store__product-price, .product__price,
+  .ec-product__price-value, .price-value,
+  span:contains("$"), div:contains("$") {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Hide add-to-cart buttons */
+  button[class*="add-to-cart"],
+  button[class*="add-to-bag"],
+  button[class*="purchase"],
+  .ec-product__add-to-cart,
+  .add-to-cart-button,
+  .form-control__button,
+  .details-product-purchase__add-to-bag,
+  button:has-text("Add to Cart"),
+  button:has-text("Add to Bag"),
+  a[class*="add-to-cart"],
+  [data-action="add-to-cart"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+  }
+
+  /* Hide quantity selectors */
+  .ec-product__qty, .quantity-selector,
+  input[type="number"][name*="qty"],
+  select[name*="quantity"] {
+    display: none !important;
+  }
+`;
+
+// Base injection script (without Android compliance - will be added conditionally)
+const BASE_INJECT_SCRIPT = `
   (function() {
-    // Inject CSS
+    // Inject base CSS
     var style = document.createElement('style');
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
@@ -175,7 +218,155 @@ export default function SearchTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [showRetry, setShowRetry] = useState(false);
   const [currentWebViewUrl, setCurrentWebViewUrl] = useState('https://greenhauscc.com/products');
+  const [canGoBack, setCanGoBack] = useState(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const platformConfig = getPlatformConfig();
+  
+  // Build injection script based on platform - only apply Android compliance on Android
+  const buildInjectScript = useCallback(() => {
+    const shouldHidePrices = Platform.OS === 'android' && !platformConfig.allowPurchaseFlow;
+    
+    if (!shouldHidePrices) {
+      return BASE_INJECT_SCRIPT;
+    }
+    
+    // Add Android compliance code
+    const complianceJS = `
+    
+    // Inject Android compliance CSS (hides prices and add-to-cart buttons)
+    var androidStyle = document.createElement('style');
+    androidStyle.id = 'android-compliance-style';
+    androidStyle.textContent = \`${ANDROID_COMPLIANCE_CSS}\`;
+    document.head.appendChild(androidStyle);
+    
+    // Function to hide prices and buttons dynamically
+    function hidePricesAndButtons() {
+      // Hide all price elements
+      var priceSelectors = [
+        '.ec-price', '.ec-price-item', '.price', '.product-price',
+        '.grid-product__price', '.ec-product__price',
+        '.ec-store__product-price', '.product__price',
+        '.ec-product__price-value', '.price-value',
+        '[class*="price"]', '[data-price]', '[class*="Price"]'
+      ];
+      
+      priceSelectors.forEach(function(selector) {
+        try {
+          var elements = document.querySelectorAll(selector);
+          elements.forEach(function(el) {
+            if (el) {
+              el.style.display = 'none';
+              el.style.visibility = 'hidden';
+              el.style.opacity = '0';
+              el.style.height = '0';
+              el.style.overflow = 'hidden';
+            }
+          });
+        } catch(e) {}
+      });
+      
+      // Hide text nodes containing prices (like "$10.00")
+      function hidePriceText(node) {
+        if (node.nodeType === 3) { // Text node
+          var text = node.textContent || '';
+          if (/\\$\\d+/.test(text)) {
+            var parent = node.parentElement;
+            if (parent && !parent.classList.contains('android-price-hidden')) {
+              parent.classList.add('android-price-hidden');
+              parent.style.display = 'none';
+            }
+          }
+        }
+      }
+      
+      // Walk through all text nodes
+      if (document.body) {
+        var walker = document.createTreeWalker(
+          document.body,
+          NodeFilter.SHOW_TEXT,
+          null,
+          false
+        );
+        
+        var node;
+        while (node = walker.nextNode()) {
+          hidePriceText(node);
+        }
+      }
+      
+      // Hide add-to-cart buttons
+      var buttonSelectors = [
+        'button[class*="add-to-cart"]',
+        'button[class*="add-to-bag"]',
+        'button[class*="purchase"]',
+        '.ec-product__add-to-cart',
+        '.add-to-cart-button',
+        '.form-control__button',
+        '.details-product-purchase__add-to-bag',
+        'a[class*="add-to-cart"]',
+        '[data-action="add-to-cart"]'
+      ];
+      
+      buttonSelectors.forEach(function(selector) {
+        try {
+          var elements = document.querySelectorAll(selector);
+          elements.forEach(function(el) {
+            if (el) {
+              el.style.display = 'none';
+              el.style.visibility = 'hidden';
+              el.style.pointerEvents = 'none';
+            }
+          });
+        } catch(e) {}
+      });
+      
+      // Hide quantity selectors
+      var qtySelectors = [
+        '.ec-product__qty',
+        '.quantity-selector',
+        'input[type="number"][name*="qty"]',
+        'select[name*="quantity"]'
+      ];
+      
+      qtySelectors.forEach(function(selector) {
+        try {
+          var elements = document.querySelectorAll(selector);
+          elements.forEach(function(el) {
+            if (el) {
+              el.style.display = 'none';
+            }
+          });
+        } catch(e) {}
+      });
+    }
+    
+    // Run immediately
+    hidePricesAndButtons();
+    
+    // Run on DOM changes
+    var observer = new MutationObserver(function() {
+      hidePricesAndButtons();
+    });
+    
+    if (document.body) {
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+    
+    // Also run periodically to catch dynamic content
+    setInterval(hidePricesAndButtons, 1000);
+    `;
+    
+    // Insert compliance code before the purchase element check
+    return BASE_INJECT_SCRIPT.replace(
+      '    // Check if element is a purchase BUTTON',
+      complianceJS + '\n    // Check if element is a purchase BUTTON'
+    );
+  }, [platformConfig]);
+  
+  const injectScript = buildInjectScript();
 
   // Force hide spinner after 10 seconds if WebView is stuck
   // Only show retry after very long load (30 seconds)
@@ -270,6 +461,9 @@ export default function SearchTab() {
     const url = navState.url || '';
     const platformConfig = getPlatformConfig();
 
+    // Track if WebView can go back
+    setCanGoBack(navState.canGoBack || false);
+
     // Track current URL for use when opening external browser
     if (url && !isCartOrCheckoutRoute(url)) {
       setCurrentWebViewUrl(url);
@@ -301,6 +495,26 @@ export default function SearchTab() {
       }
     }
   };
+
+  // Handle Android back button - go back in WebView history first
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (canGoBack && ref.current) {
+          // If WebView can go back, go back in WebView history
+          ref.current.goBack();
+          return true; // Prevent default back behavior
+        }
+        // If WebView can't go back, allow default behavior (navigate to home)
+        return false;
+      };
+
+      if (Platform.OS === 'android') {
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+        return () => backHandler.remove();
+      }
+    }, [canGoBack])
+  );
 
   const handleRetry = () => {
     setShowRetry(false);
@@ -336,6 +550,7 @@ export default function SearchTab() {
         cacheMode="LOAD_CACHE_ELSE_NETWORK"
         androidLayerType="hardware"
         sharedCookiesEnabled={true}
+        allowsBackForwardNavigationGestures={true}
         injectedJavaScriptBeforeContentLoaded={`
           // Hide everything initially to prevent flash
           document.documentElement.style.visibility = 'hidden';
@@ -346,7 +561,7 @@ export default function SearchTab() {
           setTimeout(function() { document.documentElement.style.visibility = 'visible'; }, 50);
           true;
         `}
-        injectedJavaScript={INJECT_SCRIPT}
+        injectedJavaScript={injectScript}
         onLoadStart={() => {
           setIsLoading(true);
           setShowRetry(false);

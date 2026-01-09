@@ -67,14 +67,14 @@ export const PLATFORM_CONFIG = {
     allowPurchaseFlow: true,
     informationalOnly: false,
   },
-  // Android Google Play: Completely non-transactional - no catalog, no cart, no orders
+  // Android Google Play: Browse products but no prices, no cart, no checkout
   android: {
     enableCheckout: false,
     showCart: false,
-    showBrowse: false, // No product catalog
+    showBrowse: true, // Enable browse tab - products visible but no prices/checkout
     showOrders: false, // No order history
     allowPurchaseFlow: false,
-    informationalOnly: true, // Show info/education only
+    informationalOnly: true, // Show info/education only - browsing allowed
   },
 };
 
