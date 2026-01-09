@@ -57,3 +57,13 @@ Simulator Screenshot -*
 # typescript
 *.tsbuildinfo
 .vercel
+
+# Analytics & temporary data files
+*.csv
+.analytics-archive/
+.analytics-cache/
+archive/
+
+# Service account keys (keep local only)
+fcm-service-account.json
+google-services.json.tmp
