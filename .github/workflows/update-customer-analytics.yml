@@ -51,7 +51,17 @@ jobs:
           EXPO_PUBLIC_LIGHTSPEED_TOKEN: ${{ secrets.LIGHTSPEED_TOKEN }}
           EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX: ${{ secrets.LIGHTSPEED_DOMAIN_PREFIX }}
         run: npx tsx scripts/incrementalUpdate.ts
-        
+
+      - name: Sync customer tiers to Lightspeed
+        env:
+          EXPO_PUBLIC_LIGHTSPEED_TOKEN: ${{ secrets.LIGHTSPEED_TOKEN }}
+          EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX: ${{ secrets.LIGHTSPEED_DOMAIN_PREFIX }}
+        run: |
+          echo "🔄 Syncing customer tiers to Lightspeed groups..."
+          npx tsx scripts/syncCustomerTiersToLightspeed.ts
+          echo "✅ Tier sync complete"
+        continue-on-error: false
+
       - name: Commit updated CSV
         run: |
           git config --local user.email "action@github.com"
