@@ -54,6 +54,20 @@ async function getOnlineRegisterId(): Promise<string | null> {
   return ONLINE_REGISTER_ID;
 }
 
+/**
+ * Check if an email is a placeholder (shared by multiple customers)
+ */
+function isPlaceholderEmail(email: string): boolean {
+  if (!email) return true;
+  const lower = email.toLowerCase().trim();
+  // Common placeholder patterns
+  return lower.includes('noemail') ||
+         lower.includes('no-email') ||
+         lower.includes('placeholder') ||
+         lower.includes('customer@') ||
+         lower === '';
+}
+
 interface CustomerMetrics {
   customerId: string;
   customerCode: string;
@@ -62,7 +76,9 @@ interface CustomerMetrics {
   phone: string;
   // Metrics
   lifetimeValue: number;
+  rolling90DayValue: number; // NEW: Rolling 90-day LTV for tier qualification
   orderCount: number;
+  rolling90DayOrderCount: number; // NEW: Order count in last 90 days
   averageOrderValue: number;
   firstOrderDate: string | null;
   lastOrderDate: string | null;
@@ -71,9 +87,12 @@ interface CustomerMetrics {
   isVIP: boolean;
   isHighValue: boolean;
   inactiveSegment: string; // 'active', '30d', '60d', '90d'
-  // Tier (for ambassador program - based on referrals, but we'll track spend too)
+  // Tier (for ambassador program - based on rolling 90-day spend)
   tier: string;
   referredSales: number; // Will be 0 until referral tracking is set up
+  // Order source breakdown
+  ecomOrderCount: number;
+  retailOrderCount: number;
   // Deduplication info
   duplicateIds?: string[]; // IDs of merged duplicate records
   isDuplicate?: boolean; // True if this is a duplicate that was merged
@@ -603,18 +622,18 @@ function calculateCustomerMetrics(
   // Separate eCom and retail orders
   const ecomOrders = sales.filter((s: any) => s._isEcomOrder);
   const retailOrders = sales.filter((s: any) => !s._isEcomOrder);
-  
+
   // Calculate metrics from ALL orders (eCom + Retail)
   let lifetimeValue = 0;
   let firstOrderDate: Date | null = null;
   let lastOrderDate: Date | null = null;
-  
+
   for (const sale of sales) {
-    const amount = typeof sale.total_price_incl === 'number' 
-      ? sale.total_price_incl 
+    const amount = typeof sale.total_price_incl === 'number'
+      ? sale.total_price_incl
       : (typeof sale.total_price === 'number' ? sale.total_price : 0);
     lifetimeValue += amount;
-    
+
     if (sale.created_at) {
       const saleDate = new Date(sale.created_at);
       if (!firstOrderDate || saleDate < firstOrderDate) {
@@ -625,20 +644,40 @@ function calculateCustomerMetrics(
       }
     }
   }
-  
+
   const orderCount = sales.length;
   const averageOrderValue = orderCount > 0 ? lifetimeValue / orderCount : 0;
-  
+
   // Calculate days since last order
   const now = new Date();
-  const daysSinceLastOrder = lastOrderDate 
+  const daysSinceLastOrder = lastOrderDate
     ? Math.floor((now.getTime() - lastOrderDate.getTime()) / (1000 * 60 * 60 * 24))
     : null;
-  
+
+  // NEW: Calculate rolling 90-day LTV and order count
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+  let rolling90DayValue = 0;
+  let rolling90DayOrderCount = 0;
+
+  for (const sale of sales) {
+    if (sale.created_at) {
+      const saleDate = new Date(sale.created_at);
+      if (saleDate >= ninetyDaysAgo) {
+        const amount = typeof sale.total_price_incl === 'number'
+          ? sale.total_price_incl
+          : (typeof sale.total_price === 'number' ? sale.total_price : 0);
+        rolling90DayValue += amount;
+        rolling90DayOrderCount++;
+      }
+    }
+  }
+
   // Determine segments
   const isVIP = lifetimeValue >= VIP_THRESHOLD;
   const isHighValue = lifetimeValue >= HIGH_VALUE_THRESHOLD && !isVIP;
-  
+
   let inactiveSegment = 'active';
   if (daysSinceLastOrder !== null) {
     if (daysSinceLastOrder >= INACTIVE_90_DAYS) {
@@ -649,12 +688,13 @@ function calculateCustomerMetrics(
       inactiveSegment = '30d';
     }
   }
-  
-  // Tier (for now, based on spend - will be referral-based later)
+
+  // NEW: Tier based on ROLLING 90-DAY spend (not lifetime)
+  // This keeps the behavior active - you need to maintain spend to keep tier
   let tier = 'None';
-  if (lifetimeValue >= 1500) tier = 'Evergreen';
-  else if (lifetimeValue >= 750) tier = 'Bloom';
-  else if (lifetimeValue >= 250) tier = 'Sprout';
+  if (rolling90DayValue >= 1500) tier = 'Evergreen';
+  else if (rolling90DayValue >= 750) tier = 'Bloom';
+  else if (rolling90DayValue >= 250) tier = 'Sprout';
   else if (orderCount > 0) tier = 'Seed';
   
   const name = customer.name || 
@@ -678,7 +718,9 @@ function calculateCustomerMetrics(
     email: email,
     phone: phone,
     lifetimeValue,
+    rolling90DayValue,
     orderCount,
+    rolling90DayOrderCount,
     averageOrderValue,
     firstOrderDate: firstOrderDate ? firstOrderDate.toISOString().split('T')[0] : null,
     lastOrderDate: lastOrderDate ? lastOrderDate.toISOString().split('T')[0] : null,
@@ -688,10 +730,10 @@ function calculateCustomerMetrics(
     inactiveSegment,
     tier,
     referredSales: 0,
-    duplicateIds: customer._duplicateIds,
-    isDuplicate: customer._isDeduplicated || false,
     ecomOrderCount: ecomOrders.length,
     retailOrderCount: retailOrders.length,
+    duplicateIds: customer._duplicateIds,
+    isDuplicate: customer._isDeduplicated || false,
   };
 }
 
@@ -839,7 +881,9 @@ async function main() {
       'Email',
       'Phone',
       'Lifetime Value',
+      'Rolling 90-Day Value',
       'Order Count',
+      'Rolling 90-Day Order Count',
       'Average Order Value',
       'First Order Date',
       'Last Order Date',
@@ -874,7 +918,9 @@ async function main() {
         emailClean,
         m.phone,
         m.lifetimeValue.toFixed(2),
+        m.rolling90DayValue.toFixed(2),
         m.orderCount,
+        m.rolling90DayOrderCount,
         m.averageOrderValue.toFixed(2),
         m.firstOrderDate || '',
         m.lastOrderDate || '',
@@ -896,13 +942,13 @@ async function main() {
     // Final guard: strip any email that appears on more than one customer
     const emailCounts = new Map<string, number>();
     for (const row of rows) {
-      const email = (row[3] || '').toLowerCase().trim();
+      const email = String(row[3] || '').toLowerCase().trim();
       if (email) {
         emailCounts.set(email, (emailCounts.get(email) || 0) + 1);
       }
     }
     for (const row of rows) {
-      const email = (row[3] || '').toLowerCase().trim();
+      const email = String(row[3] || '').toLowerCase().trim();
       if (email && (emailCounts.get(email) || 0) > 1) {
         row[3] = '';
       }

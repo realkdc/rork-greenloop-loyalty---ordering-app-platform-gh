@@ -8,12 +8,12 @@ The GitHub Actions workflow automatically runs every day:
 
 1. **Update Analytics CSV** (`scripts/incrementalUpdate.ts`)
    - Fetches recent customer orders from Lightspeed
-   - Recalculates Customer Lifetime Value (CLV)
-   - Updates tier assignments based on:
-     - **Seed**: First purchase after loyalty signup
-     - **Sprout**: $250+ CLV or 3+ purchases/month
-     - **Bloom**: $750+ CLV
-     - **Evergreen**: $1,500+ CLV
+   - Calculates both Lifetime Value (LTV) and Rolling 90-Day Value
+   - Updates tier assignments based on **ROLLING 90-DAY spend** (not lifetime):
+     - **Seed**: Has made at least one purchase
+     - **Sprout**: $250+ in last 90 days
+     - **Bloom**: $750+ in last 90 days
+     - **Evergreen**: $1,500+ in last 90 days
    - Updates `customer_analytics_master.csv`
 
 2. **Sync Tiers to Lightspeed** (`scripts/syncCustomerTiersToLightspeed.ts`) ✨ NEW!
@@ -29,13 +29,21 @@ The GitHub Actions workflow automatically runs every day:
 ## What This Means
 
 ✅ **Fully Automated**
-- Customers automatically move between tiers as they make purchases
+- Customers automatically move between tiers based on recent activity
 - Lightspeed groups stay in sync with analytics
 - No manual intervention needed
 
+✅ **Rolling 90-Day Window** 🔄 **NEW!**
+- Tiers are based on spend in the **last 90 days**, not lifetime
+- Customers must **maintain** their spending level to keep their tier
+- This drives ongoing engagement and repeat purchases
+- Example: Someone who spent $2,000 last year but $0 recently → drops from Evergreen to Seed
+- Example: Someone spending $300/month consistently → stays in Sprout tier
+
 ✅ **Always Up-to-Date**
-- When a customer reaches $250 CLV → Automatically moved to Sprout tier
-- When they hit $750 → Automatically moved to Bloom
+- When a customer reaches $250 in last 90 days → Automatically moved to Sprout tier
+- When they hit $750 in last 90 days → Automatically moved to Bloom
+- If spending drops below threshold → Tier automatically decreases
 - Updates happen every 24 hours
 
 ✅ **Use Cases**
@@ -151,13 +159,18 @@ GitHub Actions Workflow
 
 ## Customer Tier Groups
 
-| Tier | Lightspeed Group | Criteria |
-|------|------------------|----------|
+| Tier | Lightspeed Group | Criteria (Rolling 90-Day) |
+|------|------------------|---------------------------|
 | **First Time Buyer** | First Time Buyer | New customers (not yet calculated) |
-| **Seed** | GreenHaus Crew - Seed | Loyalty + First Purchase |
-| **Sprout** | GreenHaus Crew - Sprout | $250 CLV or 3 purchases/month |
-| **Bloom** | GreenHaus Crew - Bloom | $750 CLV |
-| **Evergreen** | GreenHaus Crew - Evergreen | $1,500 CLV |
+| **Seed** | GreenHaus Crew - Seed | Has made at least one purchase |
+| **Sprout** | GreenHaus Crew - Sprout | $250+ spent in last 90 days |
+| **Bloom** | GreenHaus Crew - Bloom | $750+ spent in last 90 days |
+| **Evergreen** | GreenHaus Crew - Evergreen | $1,500+ spent in last 90 days |
+
+**Important**: Tiers are based on a **rolling 90-day window**, not lifetime value. This means:
+- Customers need to maintain spending to keep their tier
+- Tiers can go up OR down each month
+- This encourages ongoing engagement and repeat purchases
 
 ## Benefits
 
@@ -167,19 +180,22 @@ GitHub Actions Workflow
    - Automatic segmentation
 
 2. **Loyalty Program**
-   - Customers see their progress
-   - Automatic perks when reaching new tiers
-   - Incentivizes repeat purchases
+   - Rolling window keeps customers engaged
+   - "Maintain your status" becomes real - not just a one-way door
+   - Incentivizes ongoing frequency, basket size, and mix
+   - Rewards active customers, not just historical spend
 
 3. **Data Consistency**
    - Single source of truth (CSV)
    - Lightspeed always reflects latest analytics
    - No manual updates needed
+   - Tracks both lifetime and rolling 90-day values
 
 4. **Reporting**
    - Track tier movement over time
-   - Analyze which customers are growing
-   - Identify at-risk customers (downgrading tiers)
+   - Identify customers who are maintaining vs. declining
+   - See which customers are at risk of dropping tiers
+   - Analyze engagement patterns for each tier
 
 ---
 

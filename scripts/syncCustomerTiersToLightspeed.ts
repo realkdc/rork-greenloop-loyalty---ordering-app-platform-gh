@@ -5,12 +5,16 @@
  * Reads customer_analytics_master.csv and assigns customers to their
  * corresponding Lightspeed customer groups based on tier.
  *
- * Tier Mapping (from your screenshot):
+ * IMPORTANT: Tiers are based on ROLLING 90-DAY spend, not lifetime value.
+ * This means customers must maintain their spending level to keep their tier.
+ * Tiers are recalculated monthly based on the last 90 days of purchases.
+ *
+ * Tier Mapping (based on rolling 90-day spend):
  * - "First Time Buyer" → First-time buyers
- * - "Seed" → GreenHaus Crew - Seed (Loyalty + First Purchase)
- * - "Sprout" → GreenHaus Crew - Sprout ($250 CLV or 3 purchases/month)
- * - "Bloom" → GreenHaus Crew - Bloom ($750 CLV)
- * - "Evergreen" → GreenHaus Crew - Evergreen ($1,500 CLV)
+ * - "Seed" → GreenHaus Crew - Seed (Has made at least one purchase)
+ * - "Sprout" → GreenHaus Crew - Sprout ($250 in last 90 days)
+ * - "Bloom" → GreenHaus Crew - Bloom ($750 in last 90 days)
+ * - "Evergreen" → GreenHaus Crew - Evergreen ($1,500 in last 90 days)
  *
  * Usage:
  *   npx tsx scripts/syncCustomerTiersToLightspeed.ts [--dry-run] [--limit N]
@@ -101,7 +105,7 @@ async function getCustomerGroups() {
 async function getCurrentCustomerGroup(customerId: string): Promise<string | null> {
   try {
     const response = await fetchWithAuth(`${API_BASE}/customers/${customerId}`);
-    return response.data?.customerGroupId || null;
+    return response.data?.customer_group_id || null;
   } catch (error) {
     console.error(`❌ Error fetching customer ${customerId}:`, error);
     return null;
@@ -118,7 +122,7 @@ async function assignCustomerToGroup(customerId: string, groupId: string): Promi
     await fetchWithAuth(`${API_BASE}/customers/${customerId}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        customerGroupId: groupId
+        customer_group_id: groupId
       })
     });
     return true;
@@ -171,9 +175,9 @@ function loadCustomersFromCSV(): CustomerRecord[] {
       customerCode: values[1] || '',
       name: values[2] || '',
       email: values[3] || '',
-      tier: values[14] || 'None',
-      isFirstTimeBuyer: values[18] || '',
-      lastUpdated: values[20] || ''
+      tier: values[16] || 'None',
+      isFirstTimeBuyer: values[20] || '',
+      lastUpdated: values[21] || ''
     };
 
     if (customer.customerId) {
@@ -270,17 +274,19 @@ async function main() {
     }
 
     // Check if already in correct group (unless --force)
-    if (!FORCE) {
-      const currentGroupId = await getCurrentCustomerGroup(customer.customerId);
-      if (currentGroupId === targetGroupId) {
-        console.log(`${progress} ✓ ${customer.name || customer.email || customer.customerId} already in correct group`);
-        log.skipped++;
-        continue;
-      }
+    const currentGroupId = await getCurrentCustomerGroup(customer.customerId);
+    const currentGroup = groups.find((g: any) => g.id === currentGroupId);
+    const targetGroup = groups.find((g: any) => g.id === targetGroupId);
+
+    if (!FORCE && currentGroupId === targetGroupId) {
+      console.log(`${progress} ✓ ${customer.name || customer.email || customer.customerId} already in ${targetGroup?.name || 'correct group'}`);
+      log.skipped++;
+      continue;
     }
 
     // Assign to group
-    console.log(`${progress} 🔄 Assigning ${customer.name || customer.email || customer.customerId} to ${customer.tier}...`);
+    console.log(`${progress} 🔄 Moving ${customer.name || customer.email || customer.customerId}`);
+    console.log(`   From: ${currentGroup?.name || 'No Group'} → To: ${targetGroup?.name || customer.tier}`);
     const success = await assignCustomerToGroup(customer.customerId, targetGroupId);
 
     if (success) {
@@ -294,8 +300,8 @@ async function main() {
       });
     }
 
-    // Rate limiting: wait 100ms between requests
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Rate limiting: wait 500ms between requests to ensure dashboard updates
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   // 5. Save log

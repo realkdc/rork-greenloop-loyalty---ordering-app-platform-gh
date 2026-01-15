@@ -1,20 +1,15 @@
 {
-  "lastRun": "2026-01-15T12:59:13.103Z",
-  "totalCustomers": 9344,
-  "updated": 9097,
-  "skipped": 246,
-  "errors": 1,
+  "lastRun": "2026-01-15T18:01:48.472Z",
+  "totalCustomers": 9355,
+  "updated": 9148,
+  "skipped": 207,
+  "errors": 0,
   "tierBreakdown": {
-    "Seed": 6142,
-    "None": 246,
-    "Sprout": 1379,
-    "Bloom": 678,
-    "Evergreen": 899
+    "Seed": 8210,
+    "None": 207,
+    "Sprout": 658,
+    "Bloom": 202,
+    "Evergreen": 78
   },
-  "errorDetails": [
-    {
-      "customerId": "06819b3a-2e91-11ed-f9a0-c4d54fedaa44",
-      "error": "Failed to assign to group 02269032-111f-11f0-fa97-eb1779efd27b"
-    }
-  ]
+  "errorDetails": []
 }
