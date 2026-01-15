@@ -36,14 +36,13 @@ const LIMIT = parseInt(process.argv.find(arg => arg.startsWith('--limit='))?.spl
 const MASTER_CSV = 'customer_analytics_master.csv';
 const SYNC_LOG_FILE = 'tier_sync_log.json';
 
-// Map tiers to Lightspeed Customer Group IDs (from your screenshot)
-// You'll need to get these IDs from Lightspeed API
+// Map tiers to Lightspeed Customer Group IDs
 const TIER_TO_GROUP_MAP: Record<string, string> = {
-  'First Time Buyer': 'FIRST_TIME_BUYER_GROUP_ID', // Need to get actual ID
-  'Seed': 'SEED_GROUP_ID',
-  'Sprout': 'SPROUT_GROUP_ID',
-  'Bloom': 'BLOOM_GROUP_ID',
-  'Evergreen': 'EVERGREEN_GROUP_ID',
+  'First Time Buyer': '02269032-111f-11f0-fa97-eb12f658ba5a',
+  'Seed': '02269032-111f-11f0-fa97-eb16249d0715',
+  'Sprout': '02269032-111f-11f0-fa97-eb1725275e64',
+  'Bloom': '02269032-111f-11f0-fa97-eb175d275306',
+  'Evergreen': '02269032-111f-11f0-fa97-eb1779efd27b',
   'None': '' // No group assignment
 };
 
@@ -88,7 +87,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
 async function getCustomerGroups() {
   console.log('📋 Fetching Lightspeed customer groups...');
 
-  const response = await fetchWithAuth(`${API_BASE}/customer-groups`);
+  const response = await fetchWithAuth(`${API_BASE}/customer_groups`);
   const groups = response.data || [];
 
   console.log(`✅ Found ${groups.length} customer groups:`);
