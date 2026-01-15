@@ -63,3 +63,6 @@ Simulator Screenshot -*
 !customer_analytics_master.csv  # Exception: Master CSV needed for GitHub Actions
 recent_sales_*.csv
 last_*.csv
+.analytics-cache/
+fcm-service-account.json
+google-services.json.tmp
