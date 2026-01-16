@@ -13,6 +13,7 @@ import { trpc, trpcClient } from "@/lib/trpc";
 import registerPushToken from "@/src/lib/push/registerPushToken";
 import { debugLog } from "@/lib/logger";
 import { trackAnalyticsEvent } from "@/services/analytics";
+import { sessionService } from "@/services/session";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -169,21 +170,46 @@ function PushTokenRegistrar() {
       backendBaseUrl,
       env: "prod",
       optedIn: true,
+      userId: user?.uid, // Link push token to user
     });
-  }, [backendBaseUrl, selectedStoreId]);
+  }, [backendBaseUrl, selectedStoreId, user?.uid]);
 
-  // Track APP_OPEN on mount and when app comes to foreground
+  // Session-based tracking - only fire SESSION_START when session starts
   useEffect(() => {
-    // Track initial app open
-    trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+    const initializeSessionAndTracking = async () => {
+      // Initialize session on mount
+      const session = await sessionService.initializeSession(user?.uid);
 
-    // Track when app returns to foreground (not initial open)
+      // Check if this is a new session (not just a component remount)
+      if (sessionService.shouldStartNewSession(user?.uid)) {
+        const newSession = await sessionService.startNewSession(user?.uid);
+        debugLog("🆕 [SessionTracking] New session started:", newSession.sessionId);
+        trackAnalyticsEvent('SESSION_START', {}, user?.uid);
+      } else {
+        debugLog("✅ [SessionTracking] Resuming existing session:", session.sessionId);
+        await sessionService.updateActivity();
+      }
+    };
+
+    initializeSessionAndTracking();
+
+    // Track when app returns to foreground - start new session if timed out
     let previousState = AppState.currentState;
 
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      // Only fire if transitioning from background/inactive to active
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      // Only check if transitioning from background/inactive to active
       if (previousState !== 'active' && nextAppState === 'active') {
-        trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+        debugLog("📱 [SessionTracking] App returned to foreground");
+
+        // Check if we should start a new session (after 30 min timeout)
+        if (sessionService.shouldStartNewSession(user?.uid)) {
+          const newSession = await sessionService.startNewSession(user?.uid);
+          debugLog("🆕 [SessionTracking] New session after timeout:", newSession.sessionId);
+          trackAnalyticsEvent('SESSION_START', {}, user?.uid);
+        } else {
+          debugLog("✅ [SessionTracking] Session still active, updating activity");
+          await sessionService.updateActivity();
+        }
       }
       previousState = nextAppState;
     });
@@ -221,8 +247,8 @@ export default function RootLayout() {
           mod.addNotificationResponseReceivedListener((response) => {
             const { notification } = response;
             trackAnalyticsEvent('PUSH_OPEN', {
-              campaignId: notification.request.content.data?.campaignId,
-              title: notification.request.content.title,
+              campaignId: notification.request.content.data?.campaignId as string | undefined,
+              title: notification.request.content.title as string | undefined,
             });
           });
         }

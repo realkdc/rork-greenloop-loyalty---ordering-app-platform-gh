@@ -3,6 +3,8 @@ import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Pla
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
+import { useAuth } from "@/contexts/AuthContext";
+import { useScreenTime } from "@/hooks/useScreenTime";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -106,6 +108,11 @@ const INJECT_SCRIPT = `
 export default function OrdersTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.orders = ref;
+  const { user } = useAuth();
+
+  // Track screen time
+  useScreenTime('Orders', user?.uid);
+
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
@@ -243,14 +250,14 @@ export default function OrdersTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Orders] Load started');
-          setIsLoading(true);
-        }}
+        onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
-          console.log('[Orders] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           if (loadingTimeoutRef.current) {
@@ -259,13 +266,11 @@ export default function OrdersTab() {
           }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onError={(error) => {
-          console.error('[Orders] WebView error:', error.nativeEvent);
+        onError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={(error) => {
-          console.error('[Orders] HTTP error:', error.nativeEvent);
+        onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}

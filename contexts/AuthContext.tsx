@@ -4,6 +4,7 @@ import { StorageService } from '@/services/storage';
 import { TrackingService } from '@/services/tracking';
 import { BRAND_CONFIG } from '@/constants/config';
 import { getTierByPoints } from '@/constants/tiers';
+import { lookupCustomer } from '@/services/lightspeedCustomerLookup';
 import type { User } from '@/types';
 
 interface AuthState {
@@ -62,6 +63,7 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
   const signIn = useCallback(async (email: string, name?: string) => {
     const newUser: User = {
       id: `usr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      uid: email, // Use email as unique identifier for analytics
       name: name || email.split('@')[0],
       email,
       phone: '',
@@ -71,12 +73,28 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
       joinDate: new Date(),
     };
 
+    // Look up customer in Lightspeed
+    console.log('🔍 Looking up customer in Lightspeed by email:', email);
+    const segments = await lookupCustomer(email);
+    if (segments) {
+      console.log('✅ Customer found in Lightspeed, adding segments:', segments);
+      newUser.segments = segments;
+
+      // Update name if we got it from Lightspeed
+      if (segments.firstName || segments.lastName) {
+        newUser.name = [segments.firstName, segments.lastName].filter(Boolean).join(' ') || newUser.name;
+      }
+    } else {
+      console.log('⚠️ Customer not found in Lightspeed');
+    }
+
     await StorageService.saveUser(newUser);
     setUser(newUser);
 
     await TrackingService.logEvent('signup', newUser.id, {
       method: 'email',
       welcomeBonus: BRAND_CONFIG.loyalty.welcomeBonus,
+      hasLightspeedData: !!segments,
     });
 
     console.log('✅ User signed in:', newUser.id);
@@ -85,6 +103,7 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
   const signInWithPhone = useCallback(async (phone: string, name?: string) => {
     const newUser: User = {
       id: `usr_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      uid: phone, // Use phone as unique identifier for analytics
       name: name || 'User',
       email: '',
       phone,
@@ -94,12 +113,28 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
       joinDate: new Date(),
     };
 
+    // Look up customer in Lightspeed
+    console.log('🔍 Looking up customer in Lightspeed by phone:', phone);
+    const segments = await lookupCustomer(undefined, phone);
+    if (segments) {
+      console.log('✅ Customer found in Lightspeed, adding segments:', segments);
+      newUser.segments = segments;
+
+      // Update name if we got it from Lightspeed
+      if (segments.firstName || segments.lastName) {
+        newUser.name = [segments.firstName, segments.lastName].filter(Boolean).join(' ') || newUser.name;
+      }
+    } else {
+      console.log('⚠️ Customer not found in Lightspeed');
+    }
+
     await StorageService.saveUser(newUser);
     setUser(newUser);
 
     await TrackingService.logEvent('signup', newUser.id, {
       method: 'phone',
       welcomeBonus: BRAND_CONFIG.loyalty.welcomeBonus,
+      hasLightspeedData: !!segments,
     });
 
     console.log('✅ User signed in:', newUser.id);

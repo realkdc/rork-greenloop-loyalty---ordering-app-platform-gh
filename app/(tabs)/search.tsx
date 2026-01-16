@@ -7,6 +7,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { useScreenTime } from "@/hooks/useScreenTime";
 
 const INJECTED_CSS = `
   /* Hide header, footer, and breadcrumbs only */
@@ -65,19 +66,8 @@ const INJECT_SCRIPT = `
     style.textContent = \`${INJECTED_CSS}\`;
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        count = parseInt(badge.textContent.trim()) || 0;
-      }
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
-    }
-
-    // Send immediately and every 3 seconds
-    sendCartCount();
-    setInterval(sendCartCount, 3000);
+    // Browse tab no longer sends cart counts
+    // Only Cart tab should report cart counts for accuracy
   })();
   true;
 `;
@@ -88,6 +78,10 @@ export default function SearchTab() {
   const router = useRouter();
   const { setCartCount } = useApp();
   const { user } = useAuth();
+
+  // Track screen time
+  useScreenTime('Browse', user?.uid);
+
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -131,30 +125,23 @@ export default function SearchTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Search] Load started');
-          setIsLoading(true);
-        }}
+        onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
-          console.log('[Search] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onLoadProgress={({ nativeEvent }) => {
-          console.log('[Search] Load progress:', nativeEvent.progress);
-        }}
-        onError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('[Search] WebView error:', nativeEvent);
+        onError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('[Search] HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+        onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
@@ -162,9 +149,9 @@ export default function SearchTab() {
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'CART_COUNT') {
-              setCartCount(data.count);
-            } else if (data.type === 'START_ORDER') {
+            // Browse tab no longer handles CART_COUNT messages
+            // Only Cart tab updates cart count
+            if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
                 trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
               }

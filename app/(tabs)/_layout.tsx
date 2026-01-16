@@ -4,10 +4,11 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
-import React from "react";
+import React, { useRef } from "react";
 import { debugLog } from "@/lib/logger";
 import { WEBVIEW_MINIMAL_MODE } from "@/constants/config";
 import { trackAnalyticsEvent } from "@/services/analytics";
+import { trackTabView } from "@/services/userBehavior";
 
 
 export const webviewRefs: Record<string, any> = {
@@ -49,6 +50,9 @@ function TabsLayout() {
   const app = useApp?.() as ReturnType<typeof useApp> | undefined;
   const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
+
+  // Track tab view times
+  const tabViewTimesRef = useRef<Record<string, number>>({});
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
   debugLog('[TabLayout] 📊 Cart count:', cartCount);
@@ -106,6 +110,22 @@ function TabsLayout() {
               tabPress: () => {
                 debugLog(`[Tabs] 📱 Tab ${name} pressed`);
 
+                // Track time on previous tab
+                const now = Date.now();
+                const previousTabs = Object.keys(tabViewTimesRef.current);
+                if (previousTabs.length > 0) {
+                  previousTabs.forEach((prevTab) => {
+                    const startTime = tabViewTimesRef.current[prevTab];
+                    if (startTime) {
+                      const duration = Math.floor((now - startTime) / 1000);
+                      trackTabView(TAB_LABELS[prevTab] || prevTab, duration, user?.uid);
+                    }
+                  });
+                }
+
+                // Start tracking current tab
+                tabViewTimesRef.current = { [name]: now };
+
                 // Track tab view
                 trackAnalyticsEvent('VIEW_TAB', { tab: TAB_LABELS[name] as any }, user?.uid);
 
@@ -115,7 +135,13 @@ function TabsLayout() {
                 if (!ref || !targetUrl) return;
 
                 try {
-                  // Navigate to the tab's home URL
+                  // Skip navigation for cart tab - let it handle its own state
+                  if (name === 'cart') {
+                    debugLog(`[Tabs] 🛒 Cart tab pressed - skipping navigation to preserve cart state`);
+                    return;
+                  }
+
+                  // Navigate to the tab's home URL for other tabs
                   debugLog(`[Tabs] 🔄 Navigating ${name} tab to ${targetUrl}`);
                   ref.injectJavaScript(`
                     (function(){

@@ -7,6 +7,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { submitAccountDeletionRequest } from "@/services/accountDeletion";
+import { useScreenTime } from "@/hooks/useScreenTime";
+import { lookupCustomer } from "@/services/lightspeedCustomerLookup";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -104,49 +106,93 @@ const INJECT_SCRIPT = `
       return promise;
     };
 
+    // Send a test message to confirm WebView communication works
+    try {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'WEBVIEW_LOADED',
+        url: window.location.href,
+        timestamp: Date.now()
+      }));
+    } catch(e) {}
+
     // Track successful logins (detect auth cookies or logged-in state)
     let hasTrackedLogin = false;
+    let lastSentEmail = null;
+
+    function extractCustomerEmail() {
+      const bodyText = document.body.innerText || '';
+
+      // Method 1: Look for "Welcome, email@example.com!" pattern (exact Lightspeed format)
+      const welcomeMatch = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})!/i);
+      if (welcomeMatch) return welcomeMatch[1];
+
+      // Method 2: Look for "Welcome, email@example.com" without exclamation
+      const welcomeMatch2 = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
+      if (welcomeMatch2) return welcomeMatch2[1];
+
+      // Method 3: Look for "Email\\nuser@example.com" pattern (Lightspeed account page)
+      const emailLabelMatch = bodyText.match(/Email\\n([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
+      if (emailLabelMatch) return emailLabelMatch[1];
+
+      // Method 4: Look for standalone email after "Email" word
+      const emailAfterLabel = bodyText.match(/Email[^@]*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
+      if (emailAfterLabel) return emailAfterLabel[1];
+
+      // Method 5: Just find any email in the page
+      const anyEmail = bodyText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
+      if (anyEmail) return anyEmail[0];
+
+      return null;
+    }
 
     function checkLoginStatus() {
-      // Skip if already tracked
+      // Skip if already tracked this session
       if (hasTrackedLogin) return;
 
-      // Check for auth cookies
-      const cookies = document.cookie;
-      const hasAuthCookie = /ec_auth_token|auth_token|login_token/.test(cookies);
+      const bodyText = document.body.innerText || '';
 
-      // Check for logged-in indicators on the page
-      const accountElements = document.querySelectorAll('.account-dashboard, .customer-info, [data-user-name], .account-name, .user-profile, .logged-in');
-      const hasAccountElements = accountElements.length > 0;
+      // Check if on account page and has welcome text
+      const isOnAccountPage = window.location.href.includes('/account');
+      const hasWelcomeText = bodyText.includes('Welcome,');
+      const hasSignedInText = bodyText.includes('You have signed in');
 
-      // Check localStorage for auth tokens
-      const hasStorageAuth = localStorage.getItem('ec_auth_token') || localStorage.getItem('auth_token');
+      // Must be logged in
+      if (!isOnAccountPage || (!hasWelcomeText && !hasSignedInText)) {
+        return;
+      }
 
-      // If user is logged in, send signup event
-      if ((hasAuthCookie || hasStorageAuth) && hasAccountElements) {
-        console.log('[Auth] Login detected - sending signup event');
+      // Extract email
+      const customerEmail = extractCustomerEmail();
+
+      if (customerEmail && customerEmail !== lastSentEmail) {
         hasTrackedLogin = true;
+        lastSentEmail = customerEmail;
 
+        // Send message to React Native
         try {
-          window.ReactNativeWebView?.postMessage(JSON.stringify({
+          window.ReactNativeWebView.postMessage(JSON.stringify({
             type: 'USER_LOGGED_IN',
+            email: customerEmail,
             timestamp: Date.now()
           }));
-        } catch(err) {
-          console.log('[Auth] Error posting USER_LOGGED_IN', err);
-        }
+        } catch(err) {}
       }
     }
 
-    // Check login status periodically
+    // Check immediately and every 2 seconds
+    setTimeout(checkLoginStatus, 500);
+    setTimeout(checkLoginStatus, 1500);
+    setTimeout(checkLoginStatus, 3000);
     setInterval(checkLoginStatus, 2000);
 
-    // Check on URL changes (magic link applied)
+    // Reset on URL change
     let lastUrl = window.location.href;
     setInterval(() => {
       if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
-        setTimeout(checkLoginStatus, 1000);
+        hasTrackedLogin = false;
+        setTimeout(checkLoginStatus, 500);
+        setTimeout(checkLoginStatus, 1500);
       }
     }, 500);
   })();
@@ -157,7 +203,11 @@ export default function ProfileTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.profile = ref;
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, signIn, updateUser } = useAuth();
+
+  // Track screen time
+  useScreenTime('Profile', user?.uid);
+
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
@@ -263,58 +313,81 @@ export default function ProfileTab() {
     });
   }, []);
 
-  const handleMessage = useCallback((event: any) => {
+  const handleMessage = useCallback(async (event: any) => {
     try {
-      const msg = JSON.parse(event.nativeEvent.data || '{}');
+      const rawData = event.nativeEvent.data || '{}';
+      console.log('📨📨📨 [Profile] RAW WebView message:', rawData.substring(0, 200));
+
+      const msg = JSON.parse(rawData);
+      console.log('📨 [Profile] Parsed message type:', msg.type);
+
+      if (msg.type === 'WEBVIEW_LOADED') {
+        // WebView communication confirmed working
+        return;
+      }
 
       if (msg.type === 'MAGIC_LINK_REQUESTED') {
-        console.log('📧 Magic link requested - showing paste button');
         hasAppliedLinkRef.current = false;
         setTimeout(() => {
           setShowPasteButton(true);
         }, 1000);
       } else if (msg.type === 'USER_LOGGED_IN') {
-        console.log('✅ User logged in - tracking signup event');
+        const customerEmail = msg.email;
 
-        // Send signup event to analytics
-        const trackSignup = async () => {
-          try {
-            const event = {
-              id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              type: 'signup',
-              userId: user?.id || `guest_${Date.now()}`,
-              metadata: {
-                method: 'magic_link',
-                source: 'webview',
-              },
-              timestamp: new Date().toISOString(),
-            };
+        if (!customerEmail) {
+          return;
+        }
 
-            console.log('📊 Sending signup event:', event);
+        // Show alert so user knows it's working (since console.log not visible)
+        Alert.alert(
+          'Login Detected!',
+          `Signed in as: ${customerEmail}`,
+          [{ text: 'OK' }]
+        );
 
-            // Send to /api/events endpoint
-            const response = await fetch('https://greenhaus-admin.vercel.app/api/events', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(event),
-            });
+        // Sign in with email
+        try {
+          await signIn(customerEmail);
+        } catch (error) {
+          // Silently fail
+        }
 
-            if (response.ok) {
-              console.log('✅ Signup event sent successfully');
-            } else {
-              console.warn('⚠️ Signup event failed:', response.status);
-            }
-          } catch (error) {
-            console.error('❌ Error sending signup event:', error);
+        // Send signup event to analytics with email as userId
+        try {
+          const event = {
+            id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: 'signup',
+            userId: customerEmail, // Use email as userId for analytics tracking
+            metadata: {
+              method: 'magic_link',
+              source: 'webview',
+              email: customerEmail,
+            },
+            timestamp: new Date().toISOString(),
+          };
+
+          console.log('📊 Sending signup event with email as userId:', event);
+
+          // Send to /api/events endpoint
+          const response = await fetch('https://greenhaus-admin.vercel.app/api/events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(event),
+          });
+
+          if (response.ok) {
+            console.log('✅ Signup event sent successfully');
+          } else {
+            console.warn('⚠️ Signup event failed:', response.status);
           }
-        };
-
-        trackSignup();
+        } catch (error) {
+          console.error('❌ Error sending signup event:', error);
+        }
       }
     } catch (error) {
       console.error('Profile message error:', error);
     }
-  }, [user]);
+  }, [user, signIn]);
 
   const handleDeleteAccount = useCallback(() => {
     setShowDeleteModal(true);
@@ -379,14 +452,14 @@ export default function ProfileTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Profile] Load started');
-          setIsLoading(true);
-        }}
+        onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
-          console.log('[Profile] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           if (loadingTimeoutRef.current) {
@@ -395,13 +468,11 @@ export default function ProfileTab() {
           }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onError={(error) => {
-          console.error('[Profile] WebView error:', error.nativeEvent);
+        onError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={(error) => {
-          console.error('[Profile] HTTP error:', error.nativeEvent);
+        onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}

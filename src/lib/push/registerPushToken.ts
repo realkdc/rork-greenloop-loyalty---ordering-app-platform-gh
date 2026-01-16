@@ -13,6 +13,7 @@ type RegisterPushTokenParams = {
   backendBaseUrl?: string;
   env: "prod" | string;
   optedIn?: boolean;
+  userId?: string;
 };
 
 const getExtra = (): EasExtra | undefined => {
@@ -42,8 +43,9 @@ export const registerPushToken = async ({
   backendBaseUrl,
   env,
   optedIn = true,
+  userId,
 }: RegisterPushTokenParams): Promise<string | null> => {
-  console.log("📱 [registerPushToken] Called with params:", { storeId, backendBaseUrl, env, optedIn });
+  console.log("📱 [registerPushToken] Called with params:", { storeId, backendBaseUrl, env, optedIn, userId });
   console.log("📱 [registerPushToken] Device.isDevice:", Device.isDevice);
 
   // Skip immediately on simulators or non-device environments to avoid touching native modules
@@ -128,6 +130,7 @@ export const registerPushToken = async ({
       env,
       storeId,
       optedIn,
+      userId,
     };
 
     console.log("🌐 [registerPushToken] Registering with backend:", registerUrl);
