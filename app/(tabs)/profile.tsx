@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking, Modal, TextInput } from "react-native";
+import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Platform, Linking, Modal, TextInput, ScrollView, Animated } from "react-native";
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { submitAccountDeletionRequest } from "@/services/accountDeletion";
 import { useScreenTime } from "@/hooks/useScreenTime";
-import { lookupCustomer } from "@/services/lightspeedCustomerLookup";
+import { lookupCustomer, type CustomerSegments } from "@/services/lightspeedCustomerLookup";
+import { MOCK_REWARDS } from "@/mocks/rewards";
 
 const INJECTED_CSS = `
   /* Hide header and footer */
@@ -217,6 +218,12 @@ export default function ProfileTab() {
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
 
+  // Rewards UI state
+  const [customerData, setCustomerData] = useState<CustomerSegments | null>(null);
+  const [showRewards, setShowRewards] = useState(false);
+  const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
+  const rewardsSlideAnim = useRef(new Animated.Value(1000)).current;
+
   // Force hide spinner after 8 seconds if WebView is stuck
   useEffect(() => {
     if (isLoading) {
@@ -237,6 +244,37 @@ export default function ProfileTab() {
       }
     };
   }, [isLoading]);
+
+  // Fetch customer data from Lightspeed
+  const fetchCustomerData = useCallback(async (email: string) => {
+    setIsLoadingCustomer(true);
+    try {
+      console.log('🔍 [Profile] Fetching customer data for:', email);
+      const data = await lookupCustomer(email);
+
+      if (data) {
+        console.log('✅ [Profile] Customer data loaded:', data);
+        setCustomerData(data);
+
+        // Show rewards UI after a brief delay
+        setTimeout(() => {
+          setShowRewards(true);
+          Animated.spring(rewardsSlideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 8,
+          }).start();
+        }, 500);
+      } else {
+        console.log('❌ [Profile] No customer data found');
+      }
+    } catch (error) {
+      console.error('❌ [Profile] Error fetching customer data:', error);
+    } finally {
+      setIsLoadingCustomer(false);
+    }
+  }, [rewardsSlideAnim]);
 
   const handleManualPaste = useCallback(async () => {
     try {
@@ -338,19 +376,15 @@ export default function ProfileTab() {
           return;
         }
 
-        // Show alert so user knows it's working (since console.log not visible)
-        Alert.alert(
-          'Login Detected!',
-          `Signed in as: ${customerEmail}`,
-          [{ text: 'OK' }]
-        );
-
         // Sign in with email
         try {
           await signIn(customerEmail);
         } catch (error) {
           // Silently fail
         }
+
+        // Fetch customer data from Lightspeed
+        await fetchCustomerData(customerEmail);
 
         // Send signup event to analytics with email as userId
         try {
@@ -387,7 +421,7 @@ export default function ProfileTab() {
     } catch (error) {
       console.error('Profile message error:', error);
     }
-  }, [user, signIn]);
+  }, [user, signIn, fetchCustomerData]);
 
   const handleDeleteAccount = useCallback(() => {
     setShowDeleteModal(true);
@@ -515,6 +549,33 @@ export default function ProfileTab() {
         </View>
       )}
 
+      {/* Rewards Toggle Button - only show if customer data available */}
+      {customerData && !showRewards && (
+        <TouchableOpacity
+          onPress={() => {
+            setShowRewards(true);
+            Animated.spring(rewardsSlideAnim, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 50,
+              friction: 8,
+            }).start();
+          }}
+          activeOpacity={0.85}
+          style={[
+            styles.rewardsToggleButton,
+            {
+              top: Math.max(insets.top, 16) + 10,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="View rewards"
+        >
+          <Ionicons name="gift-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.rewardsToggleLabel}>Rewards</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity
         onPress={handleDeleteAccount}
         activeOpacity={0.85}
@@ -522,6 +583,7 @@ export default function ProfileTab() {
           styles.deleteButton,
           {
             top: Math.max(insets.top, 16) + 10,
+            right: customerData && !showRewards ? 100 : 16, // Adjust position if rewards button is visible
           },
         ]}
         accessibilityRole="button"
@@ -589,8 +651,168 @@ export default function ProfileTab() {
           </View>
         </View>
       </Modal>
+
+      {/* Native Rewards UI */}
+      {showRewards && customerData && (
+        <Animated.View
+          style={[
+            styles.rewardsContainer,
+            {
+              transform: [{ translateY: rewardsSlideAnim }],
+            },
+          ]}
+        >
+          <View style={[styles.rewardsHeader, { paddingTop: Math.max(insets.top, 16) + 10 }]}>
+            <TouchableOpacity
+              onPress={() => {
+                Animated.timing(rewardsSlideAnim, {
+                  toValue: 1000,
+                  duration: 300,
+                  useNativeDriver: true,
+                }).start(() => {
+                  setShowRewards(false);
+                });
+              }}
+              style={styles.closeRewardsButton}
+            >
+              <Ionicons name="chevron-down" size={28} color="#1E4D3A" />
+            </TouchableOpacity>
+            <Text style={styles.rewardsHeaderTitle}>Your Rewards</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <ScrollView style={styles.rewardsContent} showsVerticalScrollIndicator={false}>
+            {/* Customer Info Card */}
+            <View style={styles.customerCard}>
+              <View style={styles.customerHeader}>
+                <View>
+                  <Text style={styles.customerName}>
+                    {customerData.firstName} {customerData.lastName}
+                  </Text>
+                  <Text style={styles.customerEmail}>{customerData.email}</Text>
+                </View>
+                {customerData.tier && (
+                  <View style={[styles.tierBadge, { backgroundColor: getTierColor(customerData.tier) }]}>
+                    <Text style={styles.tierBadgeText}>{customerData.tier}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>
+                    ${(customerData.lifetimeValue || 0).toFixed(0)}
+                  </Text>
+                  <Text style={styles.statLabel}>Lifetime Value</Text>
+                </View>
+                <View style={styles.statDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statValue}>{customerData.orderCount || 0}</Text>
+                  <Text style={styles.statLabel}>Orders</Text>
+                </View>
+                {customerData.isVIP && (
+                  <>
+                    <View style={styles.statDivider} />
+                    <View style={styles.statItem}>
+                      <Ionicons name="star" size={24} color="#FFD700" />
+                      <Text style={styles.statLabel}>VIP</Text>
+                    </View>
+                  </>
+                )}
+              </View>
+            </View>
+
+            {/* Tier Info */}
+            {customerData.tier && (
+              <View style={styles.tierInfoCard}>
+                <Text style={styles.sectionTitle}>Your Tier: {customerData.tier}</Text>
+                <Text style={styles.tierDescription}>
+                  {getTierDescription(customerData.tier)}
+                </Text>
+                {getNextTierInfo(customerData.lifetimeValue || 0, customerData.tier) && (
+                  <View style={styles.nextTierInfo}>
+                    <Text style={styles.nextTierText}>
+                      {getNextTierInfo(customerData.lifetimeValue || 0, customerData.tier)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Available Rewards */}
+            <View style={styles.rewardsSection}>
+              <Text style={styles.sectionTitle}>Available Rewards</Text>
+              {MOCK_REWARDS.filter(r => r.available).map((reward) => (
+                <View key={reward.id} style={styles.rewardCard}>
+                  <View style={styles.rewardInfo}>
+                    <Text style={styles.rewardTitle}>{reward.title}</Text>
+                    <Text style={styles.rewardDescription}>{reward.description}</Text>
+                    <View style={styles.rewardFooter}>
+                      <View style={styles.pointsBadge}>
+                        <Ionicons name="star-outline" size={14} color="#5DB075" />
+                        <Text style={styles.pointsText}>{reward.pointsCost} pts</Text>
+                      </View>
+                      <Text style={styles.rewardCategory}>{reward.category}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity style={styles.redeemButton}>
+                    <Text style={styles.redeemButtonText}>Redeem</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            {/* Bottom padding for scroll */}
+            <View style={{ height: 40 }} />
+          </ScrollView>
+        </Animated.View>
+      )}
     </View>
   );
+}
+
+// Helper functions for tier info
+function getTierColor(tier: string): string {
+  const colors: Record<string, string> = {
+    'Seed': '#8B7355',
+    'Sprout': '#5DB075',
+    'Bloom': '#4CAF50',
+    'Evergreen': '#1E4D3A',
+    'Bud': '#7CB342',
+  };
+  return colors[tier] || '#6B7280';
+}
+
+function getTierDescription(tier: string): string {
+  const descriptions: Record<string, string> = {
+    'Seed': 'Welcome to GreenHaus! Start earning rewards with every purchase.',
+    'Sprout': 'You\'re growing! Keep shopping to reach the next tier.',
+    'Bloom': 'Blooming member! Enjoy exclusive perks and rewards.',
+    'Evergreen': 'Top tier! You\'re part of our VIP community.',
+    'Bud': 'Growing strong! You\'re on your way to premium benefits.',
+  };
+  return descriptions[tier] || 'Keep shopping to unlock more rewards!';
+}
+
+function getNextTierInfo(lifetimeValue: number, currentTier: string): string | null {
+  const tiers = [
+    { name: 'Seed', minLtv: 0 },
+    { name: 'Sprout', minLtv: 250 },
+    { name: 'Bloom', minLtv: 750 },
+    { name: 'Evergreen', minLtv: 1500 },
+  ];
+
+  const currentIndex = tiers.findIndex(t => t.name === currentTier);
+  if (currentIndex === -1 || currentIndex === tiers.length - 1) return null;
+
+  const nextTier = tiers[currentIndex + 1];
+  const needed = nextTier.minLtv - lifetimeValue;
+
+  if (needed > 0) {
+    return `Spend $${needed.toFixed(0)} more to reach ${nextTier.name}!`;
+  }
+
+  return null;
 }
 
 const styles = StyleSheet.create({
@@ -685,9 +907,29 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '300',
   },
-  deleteButton: {
+  rewardsToggleButton: {
     position: "absolute",
     right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#5DB075",
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  rewardsToggleLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  deleteButton: {
+    position: "absolute",
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
@@ -792,5 +1034,207 @@ const styles = StyleSheet.create({
   },
   confirmDeleteButtonDisabled: {
     opacity: 0.6,
+  },
+  // Rewards UI styles
+  rewardsContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#F9FAFB',
+    zIndex: 1001,
+  },
+  rewardsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  closeRewardsButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+  },
+  rewardsHeaderTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  rewardsContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  customerCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  customerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  customerName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  customerEmail: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  tierBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  tierBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1E4D3A',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#E5E7EB',
+  },
+  tierInfoCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  tierDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
+  },
+  nextTierInfo: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 8,
+    borderLeftWidth: 4,
+    borderLeftColor: '#5DB075',
+  },
+  nextTierText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E4D3A',
+  },
+  rewardsSection: {
+    marginTop: 16,
+  },
+  rewardCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  rewardInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  rewardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  rewardDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  rewardFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  pointsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#F0FDF4',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pointsText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5DB075',
+  },
+  rewardCategory: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textTransform: 'capitalize',
+  },
+  redeemButton: {
+    backgroundColor: '#1E4D3A',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  redeemButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
