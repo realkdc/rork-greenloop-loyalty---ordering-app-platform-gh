@@ -123,25 +123,31 @@ const INJECT_SCRIPT = `
     function extractCustomerEmail() {
       const bodyText = document.body.innerText || '';
 
-      // Method 1: Look for "Welcome, email@example.com!" pattern (exact Lightspeed format)
+      // Method 1: Look for "Email" heading followed by email address
+      const emailSectionMatch = bodyText.match(/Email[\\s\\n]+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
+      if (emailSectionMatch) {
+        console.log('[Auth] Found email via Email section:', emailSectionMatch[1]);
+        return emailSectionMatch[1];
+      }
+
+      // Method 2: Look for "Welcome, email@example.com!" pattern (exact Lightspeed format)
       const welcomeMatch = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})!/i);
       if (welcomeMatch) return welcomeMatch[1];
 
-      // Method 2: Look for "Welcome, email@example.com" without exclamation
+      // Method 3: Look for "Welcome, email@example.com" without exclamation
       const welcomeMatch2 = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
       if (welcomeMatch2) return welcomeMatch2[1];
 
-      // Method 3: Look for "Email\\nuser@example.com" pattern (Lightspeed account page)
+      // Method 4: Look for "Email\\nuser@example.com" pattern (Lightspeed account page)
       const emailLabelMatch = bodyText.match(/Email\\n([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
       if (emailLabelMatch) return emailLabelMatch[1];
 
-      // Method 4: Look for standalone email after "Email" word
-      const emailAfterLabel = bodyText.match(/Email[^@]*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
-      if (emailAfterLabel) return emailAfterLabel[1];
-
       // Method 5: Just find any email in the page
       const anyEmail = bodyText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
-      if (anyEmail) return anyEmail[0];
+      if (anyEmail) {
+        console.log('[Auth] Found email via generic search:', anyEmail[0]);
+        return anyEmail[0];
+      }
 
       return null;
     }
@@ -152,20 +158,16 @@ const INJECT_SCRIPT = `
 
       const bodyText = document.body.innerText || '';
 
-      // Check if on account page and has welcome text
+      // Check if on account page
       const isOnAccountPage = window.location.href.includes('/account');
-      const hasWelcomeText = bodyText.includes('Welcome,');
-      const hasSignedInText = bodyText.includes('You have signed in');
+      if (!isOnAccountPage) return;
 
-      // Must be logged in
-      if (!isOnAccountPage || (!hasWelcomeText && !hasSignedInText)) {
-        return;
-      }
-
-      // Extract email
+      // Extract email first
       const customerEmail = extractCustomerEmail();
 
+      // If we found an email on the account page, assume logged in
       if (customerEmail && customerEmail !== lastSentEmail) {
+        console.log('[Auth] Login detected! Email:', customerEmail);
         hasTrackedLogin = true;
         lastSentEmail = customerEmail;
 
@@ -176,7 +178,12 @@ const INJECT_SCRIPT = `
             email: customerEmail,
             timestamp: Date.now()
           }));
-        } catch(err) {}
+          console.log('[Auth] Posted USER_LOGGED_IN message to React Native');
+        } catch(err) {
+          console.error('[Auth] Error posting message:', err);
+        }
+      } else {
+        console.log('[Auth] No email found yet, will retry...');
       }
     }
 
@@ -576,6 +583,30 @@ export default function ProfileTab() {
         </TouchableOpacity>
       )}
 
+      {/* Debug: Manual Trigger Button - shows when logged in but no customer data */}
+      {user?.email && !customerData && !isLoadingCustomer && (
+        <TouchableOpacity
+          onPress={() => {
+            if (user.email) {
+              fetchCustomerData(user.email);
+            }
+          }}
+          activeOpacity={0.85}
+          style={[
+            styles.debugButton,
+            {
+              top: Math.max(insets.top, 16) + 10,
+              left: 16,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Load rewards"
+        >
+          <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
+          <Text style={styles.debugButtonLabel}>Load Rewards</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity
         onPress={handleDeleteAccount}
         activeOpacity={0.85}
@@ -924,6 +955,26 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   rewardsToggleLabel: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  debugButton: {
+    position: "absolute",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#3B82F6",
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  debugButtonLabel: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "600",
