@@ -43,10 +43,10 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerSegm
       return null;
     }
 
-    // Find exact email match (case insensitive)
+    // Find exact email match (case insensitive) - MUST match, no fallback
     const customer = customers.find(
-      (c: any) => c.email?.toLowerCase() === email.toLowerCase()
-    ) || customers[0]; // Fallback to first result
+      (c: any) => c.email?.toLowerCase().trim() === email.toLowerCase().trim()
+    );
 
     if (!customer) {
       debugLog('❌ [LightspeedLookup] No matching customer found');
@@ -59,6 +59,8 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerSegm
     const segments = extractCustomerSegments(customer);
     return segments;
   } catch (error) {
+    console.error('❌ [LightspeedLookup] Error:', error);
+    console.error('❌ [DEBUG] Error message:', (error as Error).message);
     debugLog('❌ [LightspeedLookup] Error looking up customer:', error);
     return null;
   }
@@ -105,6 +107,8 @@ export async function lookupCustomerByPhone(phone: string): Promise<CustomerSegm
     const segments = extractCustomerSegments(customer);
     return segments;
   } catch (error) {
+    console.error('❌ [LightspeedLookup] Error:', error);
+    console.error('❌ [DEBUG] Error message:', (error as Error).message);
     debugLog('❌ [LightspeedLookup] Error looking up customer:', error);
     return null;
   }
@@ -114,12 +118,16 @@ export async function lookupCustomerByPhone(phone: string): Promise<CustomerSegm
  * Extract customer segments from Lightspeed customer data
  */
 function extractCustomerSegments(customer: any): CustomerSegments {
+  // Extract name - try first_name/last_name, fallback to 'name' field, or use email prefix
+  const firstName = customer.first_name || customer.name?.split(' ')[0] || customer.email?.split('@')[0] || 'Customer';
+  const lastName = customer.last_name || customer.name?.split(' ').slice(1).join(' ') || '';
+
   const segments: CustomerSegments = {
     lightspeedCustomerId: customer.id,
     email: customer.email || '',
     phone: customer.phone || customer.mobile || customer.phone_number || '',
-    firstName: customer.first_name || '',
-    lastName: customer.last_name || '',
+    firstName: firstName,
+    lastName: lastName,
     customerCode: customer.customer_code || '',
   };
 
@@ -128,6 +136,8 @@ function extractCustomerSegments(customer: any): CustomerSegments {
     segments.lifetimeValue = parseFloat(customer.total_spent) || 0;
   } else if (customer.lifetime_value !== undefined) {
     segments.lifetimeValue = parseFloat(customer.lifetime_value) || 0;
+  } else if (customer.year_to_date !== undefined) {
+    segments.lifetimeValue = parseFloat(customer.year_to_date) || 0;
   }
 
   // Extract order count

@@ -26,7 +26,7 @@ const INJECTED_CSS = `
 const CART_LISTENER_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
     // Hide headers, footers, and breadcrumbs - optimized version

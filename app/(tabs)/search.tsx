@@ -22,6 +22,20 @@ const INJECTED_CSS = `
     padding-top: 20px !important;
   }
 
+  /* Hide SORT BY dropdown */
+  button:has-text("SORT BY"),
+  div:has(> button:contains("SORT BY")),
+  [class*="sort"],
+  [class*="Sort"],
+  .ec-sorting,
+  .product-sorting,
+  .catalog-sorting {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
   /* Hide vape categories and products */
   a[href*="/disposables"],
   a[href*="/Disposables"],
@@ -63,8 +77,43 @@ const INJECTED_CSS = `
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
+
+    // Hide header, footer, nav only
+    function hideUIElements() {
+      ['header', 'footer', 'nav', '.breadcrumbs'].forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => el.style.display = 'none');
+      });
+
+      // Hide SORT BY dropdown - very aggressive
+      document.querySelectorAll('*').forEach(el => {
+        const text = el.textContent?.trim();
+        // Check if element or any child contains SORT BY
+        if (text === 'SORT BY' || (text && text.includes('SORT BY') && text.length < 50)) {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.height = '0';
+          el.style.overflow = 'hidden';
+          // Also hide parent containers
+          if (el.parentElement) {
+            const parentText = el.parentElement.textContent?.trim();
+            if (parentText && parentText.includes('SORT BY') && parentText.length < 100) {
+              el.parentElement.style.display = 'none';
+            }
+          }
+        }
+        // Also check by class name
+        const className = el.className || '';
+        if (typeof className === 'string' && (className.includes('sort') || className.includes('Sort'))) {
+          el.style.display = 'none';
+        }
+      });
+    }
+
+    // Run on page load
+    hideUIElements();
+    setInterval(hideUIElements, 1000);
 
     // Browse tab no longer sends cart counts
     // Only Cart tab should report cart counts for accuracy

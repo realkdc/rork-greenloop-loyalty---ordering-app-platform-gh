@@ -217,10 +217,32 @@ export async function getCustomer(customerId: string) {
  * Search customers
  */
 export async function searchCustomers(query: string, limit: number = 20) {
-  const search = await apiRequest<LightspeedResponse<any[]>>(
-    `/search?type=customers&q=${encodeURIComponent(query)}&page_size=${limit}`
-  );
-  return Array.isArray(search.data) ? search.data : [];
+  try {
+    // First try the search endpoint
+    console.error(`[Lightspeed] Searching customers using /search: ${query}`);
+    const search = await apiRequest<LightspeedResponse<any[]>>(
+      `/search?type=customers&q=${encodeURIComponent(query)}&page_size=${limit}`
+    );
+    const searchResults = Array.isArray(search.data) ? search.data : [];
+    console.error(`[Lightspeed] Search returned ${searchResults.length} customers`);
+
+    if (searchResults.length > 0) {
+      return searchResults;
+    }
+
+    // If search returns nothing, try /customers endpoint as fallback
+    console.error(`[Lightspeed] Search returned 0, trying /customers endpoint...`);
+    const customers = await apiRequest<LightspeedResponse<any[]>>(
+      `/customers?email=${encodeURIComponent(query)}&page_size=${limit}`
+    );
+    const customersResults = Array.isArray(customers.data) ? customers.data : [];
+    console.error(`[Lightspeed] /customers endpoint returned ${customersResults.length} results`);
+
+    return customersResults;
+  } catch (error) {
+    console.error(`[Lightspeed] Error searching customers:`, error);
+    return [];
+  }
 }
 
 /**

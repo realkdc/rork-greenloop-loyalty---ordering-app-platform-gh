@@ -1,5 +1,5 @@
 const isVerboseLoggingEnabled =
-  (__DEV__ && process.env.EXPO_PUBLIC_VERBOSE_LOGS === 'true') || false;
+  ((typeof __DEV__ !== 'undefined' ? __DEV__ : true) && process.env.EXPO_PUBLIC_VERBOSE_LOGS === 'true') || false;
 
 // PERFORMANCE FIX: Disable all console logging to prevent UI freezing
 // Excessive console.log calls (455+ across the app) were causing the app to freeze

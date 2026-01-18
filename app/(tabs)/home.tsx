@@ -49,7 +49,7 @@ const INJECTED_CSS = `
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
     // Home tab no longer sends cart counts
