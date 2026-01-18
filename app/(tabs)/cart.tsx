@@ -145,6 +145,35 @@ const CART_LISTENER_SCRIPT = `
     // Intercept "Continue Shopping", "Browse Store", "Checkout", and "Product" clicks
     let isTracking = false;
 
+    // Helper to check if element or its parents match checkout patterns
+    function isCheckoutButton(element) {
+      let el = element;
+      let depth = 0;
+      while (el && depth < 5) {
+        const text = (el.textContent || '').toLowerCase().trim();
+        const className = (el.className || '').toString().toLowerCase();
+        const tagName = el.tagName || '';
+
+        // Check for checkout indicators
+        if (
+          text === 'checkout' ||
+          text.includes('proceed to checkout') ||
+          text.includes('go to checkout') ||
+          text.includes('place order') ||
+          text.includes('secure checkout') ||
+          className.includes('checkout') ||
+          className.includes('ec-cart__button') ||
+          className.includes('form-control__button') ||
+          (tagName === 'BUTTON' && text.includes('checkout'))
+        ) {
+          return true;
+        }
+        el = el.parentElement;
+        depth++;
+      }
+      return false;
+    }
+
     document.addEventListener('click', function(e) {
       let target = e.target;
       if (!target) return;
@@ -157,7 +186,7 @@ const CART_LISTENER_SCRIPT = `
 
       const text = (target.textContent || '').toLowerCase().trim();
       const href = linkElement && linkElement.tagName === 'A' ? (linkElement.getAttribute('href') || '').toLowerCase() : '';
-      const className = (target.className || '').toLowerCase();
+      const className = (target.className || '').toString().toLowerCase();
 
       // Check if it's a product link (not checkout or continue shopping)
       if (href && (href.includes('/p/') || (href.includes('greenhauscc.com') && !href.includes('/cart') && !href.includes('checkout')))) {
@@ -170,17 +199,19 @@ const CART_LISTENER_SCRIPT = `
         return;
       }
 
-      // Check if it's a checkout button
-      if (
-        text.includes('checkout') ||
-        text.includes('proceed to checkout') ||
-        text.includes('go to checkout') ||
-        href.includes('checkout') ||
-        className.includes('checkout')
-      ) {
-        if (isTracking) return;
+      // Log for debugging
+      console.log('[Cart] Click detected - text:', text.substring(0, 50), 'className:', className.substring(0, 50));
+
+      // Check if it's a checkout button (check element and parents)
+      if (isCheckoutButton(target)) {
+        console.log('[Cart] Checkout button detected!');
+        if (isTracking) {
+          console.log('[Cart] Already tracking, skipping');
+          return;
+        }
 
         isTracking = true;
+        console.log('[Cart] Posting START_ORDER message');
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
         setTimeout(function() {
           isTracking = false;
@@ -282,7 +313,19 @@ export default function CartTab() {
           setRefreshing(false);
         }}
         onNavigationStateChange={(navState) => {
-          setCurrentUrl(navState.url);
+          const url = navState.url || '';
+          setCurrentUrl(url);
+
+          // Track order completion (thank you / confirmation page)
+          if (!navState.loading && (
+            url.includes('thank') ||
+            url.includes('confirmation') ||
+            url.includes('order-confirmed') ||
+            url.includes('success')
+          )) {
+            console.log('[Cart] Order complete detected:', url);
+            trackAnalyticsEvent('ORDER_COMPLETE', { url }, user?.uid);
+          }
         }}
         onMessage={(event) => {
           try {
@@ -301,8 +344,12 @@ export default function CartTab() {
               router.push('/(tabs)/search');
             } else if (data.type === 'START_ORDER') {
               // Track checkout button click
+              console.log('[Cart] START_ORDER message received');
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                console.log('[Cart] Tracking CHECKOUT_START event');
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
+              } else {
+                console.log('[Cart] Debounced - not tracking');
               }
             }
           } catch (e) {}

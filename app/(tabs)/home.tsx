@@ -12,7 +12,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
 import { trackPromoView, trackPromoClick } from "@/services/userBehavior";
-import { useScreenTime } from "@/hooks/useScreenTime";
 
 const INJECTED_CSS = `
   /* Hide header and footer only */
@@ -102,9 +101,6 @@ export default function HomeTab() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  // Track screen time
-  useScreenTime('Home', user?.uid);
 
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
@@ -383,7 +379,7 @@ export default function HomeTab() {
             // Only Cart tab updates cart count
             if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
             }
           } catch (e) {}

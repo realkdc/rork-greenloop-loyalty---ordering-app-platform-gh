@@ -154,13 +154,13 @@ function extractCustomerSegments(customer: any): CustomerSegments {
     segments.lastOrderDate = customer.updated_at;
   }
 
-  // Determine tier based on LTV or order count
+  // Determine tier based on LTV (Seed = first purchase, Sprout = $250+, Bloom = $750+, Evergreen = $1500+)
   if (segments.lifetimeValue !== undefined) {
-    if (segments.lifetimeValue >= 2000) {
+    if (segments.lifetimeValue >= 1500) {
+      segments.tier = 'Evergreen';
+    } else if (segments.lifetimeValue >= 750) {
       segments.tier = 'Bloom';
-    } else if (segments.lifetimeValue >= 1000) {
-      segments.tier = 'Bud';
-    } else if (segments.lifetimeValue >= 500) {
+    } else if (segments.lifetimeValue >= 250) {
       segments.tier = 'Sprout';
     } else {
       segments.tier = 'Seed';

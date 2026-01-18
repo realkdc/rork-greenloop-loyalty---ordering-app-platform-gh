@@ -8,19 +8,27 @@ import { sessionService } from './session';
 
 // Analytics event types
 export type AnalyticsEventType =
-  | 'APP_OPEN' // Deprecated - use SESSION_START
-  | 'SESSION_START' // New session begins
-  | 'VIEW_TAB'
-  | 'TAB_VIEW' // User views a tab (with duration)
-  | 'START_ORDER_CLICK'
-  | 'JOIN_CREW_CLICK'
-  | 'PUSH_OPEN'
-  | 'REFERRAL_LINK_CLICK'
+  | 'APP_OPEN' // App was opened (always fires on app mount)
+  | 'SESSION_START' // New session begins (after 30min timeout)
+  | 'TAB_SWITCH' // User switched tabs (with from/to/duration)
+  | 'CHECKOUT_START' // User started checkout flow
+  | 'ORDER_COMPLETE' // User completed an order
+  | 'PRODUCT_VIEW' // User viewed a product
+  | 'ADD_TO_CART' // User added item to cart
+  | 'LOGIN' // User logged in
+  | 'SIGNUP' // User signed up
+  | 'PUSH_OPEN' // User tapped a push notification
   | 'PROMO_VIEW' // User views promo modal
   | 'PROMO_CLICK' // User clicks promo
   | 'FEATURE_USE' // User uses specific features
-  | 'SCREEN_VIEW' // User views a screen
-  | 'TIME_ON_SCREEN'; // Time spent on screen
+  // Legacy - kept for backwards compatibility, will be removed
+  | 'VIEW_TAB'
+  | 'TAB_VIEW'
+  | 'START_ORDER_CLICK'
+  | 'JOIN_CREW_CLICK'
+  | 'REFERRAL_LINK_CLICK'
+  | 'SCREEN_VIEW'
+  | 'TIME_ON_SCREEN';
 
 export interface AnalyticsMetadata {
   tab?: 'Home' | 'Browse' | 'Cart' | 'Orders' | 'Account';

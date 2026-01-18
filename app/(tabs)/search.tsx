@@ -7,7 +7,6 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
-import { useScreenTime } from "@/hooks/useScreenTime";
 
 const INJECTED_CSS = `
   /* Hide header, footer, and breadcrumbs only */
@@ -117,6 +116,36 @@ const INJECT_SCRIPT = `
 
     // Browse tab no longer sends cart counts
     // Only Cart tab should report cart counts for accuracy
+
+    // Track Add to Cart button clicks
+    document.addEventListener('click', function(e) {
+      let target = e.target;
+      if (!target) return;
+
+      // Check element and parents for add to cart button
+      let el = target;
+      let depth = 0;
+      while (el && depth < 5) {
+        const text = (el.textContent || '').toLowerCase().trim();
+        const className = (el.className || '').toString().toLowerCase();
+
+        if (
+          text === 'add to bag' ||
+          text === 'add to cart' ||
+          text.includes('add to bag') ||
+          text.includes('add to cart') ||
+          className.includes('add-to-cart') ||
+          className.includes('addtocart') ||
+          className.includes('ec-product__add-to-cart')
+        ) {
+          console.log('[Browse] Add to cart clicked');
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ADD_TO_CART' }));
+          return;
+        }
+        el = el.parentElement;
+        depth++;
+      }
+    }, true);
   })();
   true;
 `;
@@ -127,9 +156,6 @@ export default function SearchTab() {
   const router = useRouter();
   const { setCartCount } = useApp();
   const { user } = useAuth();
-
-  // Track screen time
-  useScreenTime('Browse', user?.uid);
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -142,6 +168,15 @@ export default function SearchTab() {
       canGoBack: navState.canGoBack,
       canGoForward: navState.canGoForward,
     });
+
+    // Track product views (URLs with /p/ are product pages)
+    if (url.includes('/p/') && !navState.loading) {
+      // Extract product name from URL (e.g., /p/product-name-123)
+      const productMatch = url.match(/\/p\/([^/?]+)/);
+      const productSlug = productMatch ? productMatch[1] : 'unknown';
+      console.log('[Search] Product view detected:', productSlug);
+      trackAnalyticsEvent('PRODUCT_VIEW', { product: productSlug, url }, user?.uid);
+    }
 
     // If navigated to cart page, switch to cart tab and reload it
     if (url.includes('/cart') || url.includes('/products/cart')) {
@@ -202,8 +237,11 @@ export default function SearchTab() {
             // Only Cart tab updates cart count
             if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
+            } else if (data.type === 'ADD_TO_CART') {
+              console.log('[Browse] Tracking ADD_TO_CART event');
+              trackAnalyticsEvent('ADD_TO_CART', {}, user?.uid);
             }
           } catch (e) {}
         }}

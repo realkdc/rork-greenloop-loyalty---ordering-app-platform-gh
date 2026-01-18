@@ -8,7 +8,6 @@ import React, { useRef } from "react";
 import { debugLog } from "@/lib/logger";
 import { WEBVIEW_MINIMAL_MODE } from "@/constants/config";
 import { trackAnalyticsEvent } from "@/services/analytics";
-import { trackTabView } from "@/services/userBehavior";
 
 
 export const webviewRefs: Record<string, any> = {
@@ -51,8 +50,8 @@ function TabsLayout() {
   const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
 
-  // Track tab view times
-  const tabViewTimesRef = useRef<Record<string, number>>({});
+  // Track current tab and when it was opened
+  const currentTabRef = useRef<{ name: string; startTime: number } | null>(null);
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
   debugLog('[TabLayout] 📊 Cart count:', cartCount);
@@ -110,24 +109,28 @@ function TabsLayout() {
               tabPress: () => {
                 debugLog(`[Tabs] 📱 Tab ${name} pressed`);
 
-                // Track time on previous tab
                 const now = Date.now();
-                const previousTabs = Object.keys(tabViewTimesRef.current);
-                if (previousTabs.length > 0) {
-                  previousTabs.forEach((prevTab) => {
-                    const startTime = tabViewTimesRef.current[prevTab];
-                    if (startTime) {
-                      const duration = Math.floor((now - startTime) / 1000);
-                      trackTabView(TAB_LABELS[prevTab] || prevTab, duration, user?.uid);
-                    }
-                  });
+                const previousTab = currentTabRef.current;
+                const toTab = TAB_LABELS[name] || name;
+
+                // Track TAB_SWITCH with duration on previous tab
+                if (previousTab) {
+                  const duration = Math.floor((now - previousTab.startTime) / 1000);
+                  trackAnalyticsEvent('TAB_SWITCH', {
+                    from: previousTab.name,
+                    to: toTab,
+                    duration, // seconds spent on previous tab
+                  }, user?.uid);
+                } else {
+                  // First tab view of the session
+                  trackAnalyticsEvent('TAB_SWITCH', {
+                    from: null,
+                    to: toTab,
+                  }, user?.uid);
                 }
 
-                // Start tracking current tab
-                tabViewTimesRef.current = { [name]: now };
-
-                // Track tab view
-                trackAnalyticsEvent('VIEW_TAB', { tab: TAB_LABELS[name] as any }, user?.uid);
+                // Track current tab
+                currentTabRef.current = { name: toTab, startTime: now };
 
                 const ref = webviewRefs[name]?.current;
                 const targetUrl = TAB_URLS[name];

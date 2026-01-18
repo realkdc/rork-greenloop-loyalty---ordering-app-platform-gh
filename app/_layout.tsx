@@ -143,7 +143,7 @@ function DeepLinkHandler() {
 
 function PushTokenRegistrar() {
   const { selectedStoreId } = useApp();
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
   // Log when component mounts
@@ -174,42 +174,37 @@ function PushTokenRegistrar() {
     });
   }, [backendBaseUrl, selectedStoreId, user?.uid]);
 
-  // Session-based tracking - only fire SESSION_START when session starts
+  // Session tracking - wait for auth to finish loading, then fire once
   useEffect(() => {
-    const initializeSessionAndTracking = async () => {
-      // Initialize session on mount
-      const session = await sessionService.initializeSession(user?.uid);
+    // Wait for auth to finish loading before initializing session
+    if (isAuthLoading) {
+      debugLog("⏳ [SessionTracking] Waiting for auth to load...");
+      return;
+    }
 
-      // Check if this is a new session (not just a component remount)
-      if (sessionService.shouldStartNewSession(user?.uid)) {
-        const newSession = await sessionService.startNewSession(user?.uid);
-        debugLog("🆕 [SessionTracking] New session started:", newSession.sessionId);
-        trackAnalyticsEvent('SESSION_START', {}, user?.uid);
-      } else {
-        debugLog("✅ [SessionTracking] Resuming existing session:", session.sessionId);
-        await sessionService.updateActivity();
-      }
+    // Get the user ID - use uid (email/phone) if available, otherwise anonymous
+    const userId = user?.uid || user?.email || undefined;
+    debugLog(`📱 [SessionTracking] Auth loaded. user: ${JSON.stringify({ uid: user?.uid, email: user?.email, name: user?.name })}`);
+
+    const initSession = async () => {
+      debugLog(`📱 [SessionTracking] Initializing session with userId: ${userId || 'anonymous'}`);
+
+      const { session, isNewSession, didFireAppOpen } = await sessionService.initializeSessionWithTracking(userId);
+
+      debugLog(`📱 [SessionTracking] Session initialized: ${session.sessionId}, isNew: ${isNewSession}, appOpenFired: ${didFireAppOpen}`);
     };
 
-    initializeSessionAndTracking();
+    initSession();
+  }, [isAuthLoading, user?.uid, user?.email]); // Include user fields to ensure we have latest values
 
-    // Track when app returns to foreground - start new session if timed out
+  // Track when app returns to foreground
+  useEffect(() => {
     let previousState = AppState.currentState;
 
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
-      // Only check if transitioning from background/inactive to active
       if (previousState !== 'active' && nextAppState === 'active') {
         debugLog("📱 [SessionTracking] App returned to foreground");
-
-        // Check if we should start a new session (after 30 min timeout)
-        if (sessionService.shouldStartNewSession(user?.uid)) {
-          const newSession = await sessionService.startNewSession(user?.uid);
-          debugLog("🆕 [SessionTracking] New session after timeout:", newSession.sessionId);
-          trackAnalyticsEvent('SESSION_START', {}, user?.uid);
-        } else {
-          debugLog("✅ [SessionTracking] Session still active, updating activity");
-          await sessionService.updateActivity();
-        }
+        await sessionService.handleForeground(user?.uid);
       }
       previousState = nextAppState;
     });

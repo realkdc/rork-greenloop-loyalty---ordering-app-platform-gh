@@ -2,6 +2,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { useState, useEffect, useCallback } from 'react';
 import { StorageService } from '@/services/storage';
 import { TrackingService } from '@/services/tracking';
+import { trackAnalyticsEvent } from '@/services/analytics';
 import { BRAND_CONFIG } from '@/constants/config';
 import { getTierByPoints } from '@/constants/tiers';
 import { lookupCustomer } from '@/services/lightspeedCustomerLookup';
@@ -91,6 +92,9 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
     await StorageService.saveUser(newUser);
     setUser(newUser);
 
+    // Track login/signup event
+    trackAnalyticsEvent('LOGIN', { method: 'email' }, newUser.uid);
+
     await TrackingService.logEvent('signup', newUser.id, {
       method: 'email',
       welcomeBonus: BRAND_CONFIG.loyalty.welcomeBonus,
@@ -130,6 +134,9 @@ export const [AuthProvider, useAuth] = createContextHook<AuthState>(() => {
 
     await StorageService.saveUser(newUser);
     setUser(newUser);
+
+    // Track login/signup event
+    trackAnalyticsEvent('LOGIN', { method: 'phone' }, newUser.uid);
 
     await TrackingService.logEvent('signup', newUser.id, {
       method: 'phone',

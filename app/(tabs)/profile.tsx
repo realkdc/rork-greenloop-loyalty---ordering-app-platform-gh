@@ -7,7 +7,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/contexts/AuthContext";
 import { submitAccountDeletionRequest } from "@/services/accountDeletion";
-import { useScreenTime } from "@/hooks/useScreenTime";
 import { lookupCustomer, type CustomerSegments } from "@/services/lightspeedCustomerLookup";
 import { MOCK_REWARDS } from "@/mocks/rewards";
 import { useRouter } from "expo-router";
@@ -306,9 +305,6 @@ export default function ProfileTab() {
   const insets = useSafeAreaInsets();
   const { user, signIn, updateUser } = useAuth();
   const router = useRouter();
-
-  // Track screen time
-  useScreenTime('Profile', user?.uid);
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -852,7 +848,7 @@ export default function ProfileTab() {
             {/* Tier Info */}
             {customerData.tier && (
               <View style={styles.tierInfoCard}>
-                <Text style={styles.sectionTitle}>Your Tier: {customerData.tier}</Text>
+                <Text style={styles.sectionTitle}>🌱 Crew Status: {customerData.tier}</Text>
                 <Text style={styles.tierDescription}>
                   {getTierDescription(customerData.tier)}
                 </Text>
@@ -983,13 +979,12 @@ function getTierColor(tier: string): string {
 
 function getTierDescription(tier: string): string {
   const descriptions: Record<string, string> = {
-    'Seed': 'Welcome to GreenHaus! Start earning rewards with every purchase.',
-    'Sprout': 'You\'re growing! Keep shopping to reach the next tier.',
-    'Bloom': 'Blooming member! Enjoy exclusive perks and rewards.',
-    'Evergreen': 'Top tier! You\'re part of our VIP community.',
-    'Bud': 'Growing strong! You\'re on your way to premium benefits.',
+    'Seed': 'Welcome to the GreenHaus Crew! You\'ve planted your roots. Start stacking perks with every purchase.',
+    'Sprout': 'You\'re growing fast, Crew! Keep shopping to unlock even more exclusive benefits.',
+    'Bloom': 'Fully bloomed! Enjoy premium perks, early access, and exclusive drops as part of the Crew.',
+    'Evergreen': 'You\'ve reached Evergreen, the top of the Crew. VIP status, VIP treatment, always.',
   };
-  return descriptions[tier] || 'Keep shopping to unlock more rewards!';
+  return descriptions[tier] || 'Welcome to the GreenHaus Crew! Keep shopping to unlock more rewards.';
 }
 
 function getTierPerks(tier: string): Array<{ title: string; description: string; type: string }> {

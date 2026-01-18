@@ -4,7 +4,6 @@ import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
 import { useAuth } from "@/contexts/AuthContext";
-import { useScreenTime } from "@/hooks/useScreenTime";
 
 const INJECTED_CSS = `
   /* Hide header, footer, nav */
@@ -190,9 +189,6 @@ export default function OrdersTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.orders = ref;
   const { user } = useAuth();
-
-  // Track screen time
-  useScreenTime('Orders', user?.uid);
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
