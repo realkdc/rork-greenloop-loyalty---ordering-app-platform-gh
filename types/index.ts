@@ -1,5 +1,6 @@
 export interface User {
   id: string;
+  uid?: string; // Firebase UID for analytics and push tokens
   name: string;
   email: string;
   phone: string;
@@ -7,6 +8,18 @@ export interface User {
   tier: TierLevel;
   referralCode: string;
   joinDate: Date;
+  segments?: CustomerSegments;
+}
+
+export interface CustomerSegments {
+  lightspeedCustomerId?: string;
+  isVIP?: boolean;
+  tier?: string;
+  lifetimeValue?: number;
+  orderCount?: number;
+  lastOrderDate?: string;
+  inactiveSegment?: string;
+  customerCode?: string;
 }
 
 export type TierLevel = 'bronze' | 'silver' | 'gold' | 'platinum';

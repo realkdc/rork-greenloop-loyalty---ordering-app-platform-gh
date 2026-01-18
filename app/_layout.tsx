@@ -13,6 +13,7 @@ import { trpc, trpcClient } from "@/lib/trpc";
 import registerPushToken from "@/src/lib/push/registerPushToken";
 import { debugLog } from "@/lib/logger";
 import { trackAnalyticsEvent } from "@/services/analytics";
+import { sessionService } from "@/services/session";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -142,7 +143,7 @@ function DeepLinkHandler() {
 
 function PushTokenRegistrar() {
   const { selectedStoreId } = useApp();
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const backendBaseUrl = process.env.EXPO_PUBLIC_API_URL;
 
   // Log when component mounts
@@ -169,21 +170,41 @@ function PushTokenRegistrar() {
       backendBaseUrl,
       env: "prod",
       optedIn: true,
+      userId: user?.uid, // Link push token to user
     });
-  }, [backendBaseUrl, selectedStoreId]);
+  }, [backendBaseUrl, selectedStoreId, user?.uid]);
 
-  // Track APP_OPEN on mount and when app comes to foreground
+  // Session tracking - wait for auth to finish loading, then fire once
   useEffect(() => {
-    // Track initial app open
-    trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+    // Wait for auth to finish loading before initializing session
+    if (isAuthLoading) {
+      debugLog("⏳ [SessionTracking] Waiting for auth to load...");
+      return;
+    }
 
-    // Track when app returns to foreground (not initial open)
+    // Get the user ID - use uid (email/phone) if available, otherwise anonymous
+    const userId = user?.uid || user?.email || undefined;
+    debugLog(`📱 [SessionTracking] Auth loaded. user: ${JSON.stringify({ uid: user?.uid, email: user?.email, name: user?.name })}`);
+
+    const initSession = async () => {
+      debugLog(`📱 [SessionTracking] Initializing session with userId: ${userId || 'anonymous'}`);
+
+      const { session, isNewSession, didFireAppOpen } = await sessionService.initializeSessionWithTracking(userId);
+
+      debugLog(`📱 [SessionTracking] Session initialized: ${session.sessionId}, isNew: ${isNewSession}, appOpenFired: ${didFireAppOpen}`);
+    };
+
+    initSession();
+  }, [isAuthLoading, user?.uid, user?.email]); // Include user fields to ensure we have latest values
+
+  // Track when app returns to foreground
+  useEffect(() => {
     let previousState = AppState.currentState;
 
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
-      // Only fire if transitioning from background/inactive to active
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
       if (previousState !== 'active' && nextAppState === 'active') {
-        trackAnalyticsEvent('APP_OPEN', {}, user?.uid);
+        debugLog("📱 [SessionTracking] App returned to foreground");
+        await sessionService.handleForeground(user?.uid);
       }
       previousState = nextAppState;
     });
@@ -221,8 +242,8 @@ export default function RootLayout() {
           mod.addNotificationResponseReceivedListener((response) => {
             const { notification } = response;
             trackAnalyticsEvent('PUSH_OPEN', {
-              campaignId: notification.request.content.data?.campaignId,
-              title: notification.request.content.title,
+              campaignId: notification.request.content.data?.campaignId as string | undefined,
+              title: notification.request.content.title as string | undefined,
             });
           });
         }

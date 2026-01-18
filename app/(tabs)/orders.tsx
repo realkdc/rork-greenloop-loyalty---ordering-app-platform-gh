@@ -3,42 +3,124 @@ import { View, StyleSheet, ActivityIndicator, Text, TouchableOpacity, Alert, Pla
 import { WebView } from "react-native-webview";
 import { webviewRefs } from "./_layout";
 import * as Clipboard from "expo-clipboard";
+import { useAuth } from "@/contexts/AuthContext";
 
 const INJECTED_CSS = `
-  /* Hide header and footer */
-  header, .ins-header, .site-header,
-  footer, .site-footer, .ec-footer,
-  nav, .navigation, .site-nav,
-  .breadcrumbs, .ec-breadcrumbs {
+  /* Hide header, footer, nav */
+  header, footer, nav,
+  .ins-header, .site-header, .ec-header,
+  .site-footer, .ec-footer,
+  .breadcrumbs, .ec-breadcrumbs,
+  .navigation, .site-nav {
     display: none !important;
   }
 
   body {
-    padding-top: 20px !important;
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+  }
+
+  /* Hide horizontal rules/dividers */
+  hr {
+    display: none !important;
   }
 `;
 
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
-    // Hide headers, footers, and breadcrumbs
-    function hideUIElements() {
-      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
-        document.querySelectorAll(selector).forEach(el => {
+    function hideAccountShowOrders() {
+      // Hide headers/footers/nav
+      ['header', 'footer', 'nav'].forEach(tag => {
+        document.querySelectorAll(tag).forEach(el => {
           el.style.display = 'none';
         });
       });
+
+      // Find the "Orders" heading element
+      let ordersHeading = null;
+      document.querySelectorAll('h1, h2, h3, div, span').forEach(el => {
+        const text = (el.textContent || '').trim();
+        if (text === 'Orders' && !ordersHeading) {
+          ordersHeading = el;
+        }
+      });
+
+      if (ordersHeading) {
+        // Find the container that holds the account info (everything above Orders)
+        // Walk up to find a suitable parent, then hide siblings before it
+        let container = ordersHeading;
+
+        // Go up a few levels to find the main content container
+        for (let i = 0; i < 5; i++) {
+          if (container.parentElement) {
+            container = container.parentElement;
+          }
+        }
+
+        // Now find and hide elements that appear BEFORE the Orders section
+        // by checking their position relative to the Orders heading
+        const ordersRect = ordersHeading.getBoundingClientRect();
+
+        document.querySelectorAll('*').forEach(el => {
+          // Skip if element is or contains an image
+          if (el.tagName === 'IMG' || el.querySelector('img')) {
+            return;
+          }
+
+          // Skip if element contains order-related content
+          const fullText = el.textContent || '';
+          if (fullText.includes('Online order #') ||
+              fullText.includes('order #') ||
+              fullText.includes('Paid') ||
+              fullText.includes('Shipped') ||
+              fullText.includes('Shipping info') ||
+              fullText.includes('View items') ||
+              fullText.includes('$')) {
+            return;
+          }
+
+          const rect = el.getBoundingClientRect();
+
+          // Only process elements that are ABOVE the Orders heading
+          if (rect.bottom < ordersRect.top && rect.height > 0 && rect.height < 200) {
+            // Check if this element contains account-related text
+            const text = fullText.trim();
+            if (
+              text.includes('Account') ||
+              text.includes('@') ||
+              text.includes('Membership') ||
+              text.includes('GreenHaus Crew') ||
+              text.includes('Discounts') ||
+              text.includes('Loyalty') ||
+              text.includes('Balance:') ||
+              text.includes('Communication') ||
+              text.includes('Legal') ||
+              text.includes('Terms') ||
+              text.includes('Sign Out') ||
+              text.includes('Home / Store')
+            ) {
+              el.style.display = 'none';
+            }
+          }
+        });
+      }
+
+      // Hide HR elements (divider lines) that are above visible content
+      document.querySelectorAll('hr').forEach(hr => {
+        hr.style.display = 'none';
+      });
     }
 
-    // Run immediately and on DOM changes
-    hideUIElements();
-    setInterval(hideUIElements, 1000);
+    // Run immediately and repeatedly
+    hideAccountShowOrders();
+    setInterval(hideAccountShowOrders, 300);
 
     // Watch for DOM changes
-    const observer = new MutationObserver(hideUIElements);
+    const observer = new MutationObserver(hideAccountShowOrders);
     observer.observe(document.body, { childList: true, subtree: true });
 
     // Magic link detection
@@ -106,6 +188,8 @@ const INJECT_SCRIPT = `
 export default function OrdersTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.orders = ref;
+  const { user } = useAuth();
+
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showPasteButton, setShowPasteButton] = useState(false);
@@ -243,14 +327,14 @@ export default function OrdersTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Orders] Load started');
-          setIsLoading(true);
-        }}
+        onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
-          console.log('[Orders] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           if (loadingTimeoutRef.current) {
@@ -259,13 +343,11 @@ export default function OrdersTab() {
           }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onError={(error) => {
-          console.error('[Orders] WebView error:', error.nativeEvent);
+        onError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={(error) => {
-          console.error('[Orders] HTTP error:', error.nativeEvent);
+        onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}

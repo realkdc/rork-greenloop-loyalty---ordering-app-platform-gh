@@ -26,8 +26,7 @@ DOMAIN_PREFIX=greenhauscannabisco
 API_BASE=https://greenhauscannabisco.retail.lightspeed.app/api/2.0
 
 # Personal Token (from Retail dashboard)
-# ⚠️ NEVER commit tokens to git! Use environment variables or GitHub Secrets
-TOKEN=your_token_here
+TOKEN=lsxs_pt_6sqjwdEpsQfQWqG2WU1IabSaeywqehcl
 
 # Authentication
 HEADER=Authorization: Bearer {TOKEN}
@@ -221,7 +220,7 @@ Add these to your `.env` file:
 ```bash
 # LightSpeed Retail (X-Series) API Configuration
 EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX=greenhauscannabisco
-EXPO_PUBLIC_LIGHTSPEED_TOKEN=your_token_here  # ⚠️ Never commit real tokens to git!
+EXPO_PUBLIC_LIGHTSPEED_TOKEN=lsxs_pt_6sqjwdEpsQfQWqG2WU1IabSaeywqehcl
 EXPO_PUBLIC_LIGHTSPEED_API_BASE=https://greenhauscannabisco.retail.lightspeed.app/api/2.0
 
 # OAuth Credentials (if needed for multi-store apps)

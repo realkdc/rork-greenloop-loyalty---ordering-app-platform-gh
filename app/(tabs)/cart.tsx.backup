@@ -1,0 +1,329 @@
+import React, { useRef, useState, useEffect } from "react";
+import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { WebView } from "react-native-webview";
+import { webviewRefs } from "./_layout";
+import { useApp } from "@/contexts/AppContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useRouter } from "expo-router";
+import { trackAnalyticsEvent } from "@/services/analytics";
+import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { useScreenTime } from "@/hooks/useScreenTime";
+
+const INJECTED_CSS = `
+  /* Hide header, footer, and breadcrumbs */
+  header, .ins-header, .site-header,
+  footer, .site-footer, .ec-footer,
+  nav, .navigation, .site-nav,
+  .breadcrumbs, .ec-breadcrumbs {
+    display: none !important;
+  }
+
+  body {
+    padding-top: 20px !important;
+  }
+`;
+
+const CART_LISTENER_SCRIPT = `
+  (function() {
+    const style = document.createElement('style');
+    style.textContent = \`${INJECTED_CSS}\`;
+    document.head.appendChild(style);
+
+    // Hide headers, footers, and breadcrumbs
+    function hideUIElements() {
+      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          el.style.display = 'none';
+        });
+      });
+    }
+
+    // Run immediately and on DOM changes
+    hideUIElements();
+    setInterval(hideUIElements, 1000);
+
+    // Watch for DOM changes
+    const observer = new MutationObserver(hideUIElements);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Send cart count to React Native (PROVEN WORKING METHOD)
+    function sendCartCount() {
+      try {
+        let count = 0;
+
+        // PRIORITY 1: Header badge data-count attribute (most reliable)
+        // Note: Header is hidden with CSS but element still exists in DOM
+        const headerBadge = document.querySelector('a.ins-header__icon--cart[data-count], a[data-count].ins-header__icon, a.ins-header__icon.ins-header__icon--cart[data-count]');
+        console.log('[Cart] Looking for header badge, found:', headerBadge);
+        if (headerBadge) {
+          const dataCount = headerBadge.getAttribute('data-count');
+          console.log('[Cart] Header badge data-count attribute:', dataCount);
+          if (dataCount !== null && dataCount !== undefined) {
+            count = parseInt(dataCount, 10) || 0;
+            console.log('[Cart] Found header badge data-count:', count);
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+            return;
+          }
+        }
+
+        // PRIORITY 2: Any element with data-count attribute (cart badges)
+        const anyBadge = document.querySelector('[data-count]');
+        console.log('[Cart] Looking for any [data-count], found:', anyBadge);
+        if (anyBadge) {
+          const dataCount = anyBadge.getAttribute('data-count');
+          console.log('[Cart] Any badge data-count attribute:', dataCount);
+          if (dataCount !== null && dataCount !== undefined) {
+            count = parseInt(dataCount, 10) || 0;
+            console.log('[Cart] Found badge with data-count:', count);
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+            return;
+          }
+        }
+
+        // PRIORITY 3: Footer text "Shopping Bag (N)"
+        const bodyText = document.body.innerText || '';
+        const footerMatch = bodyText.match(/Shopping Bag \\((\\d+)\\)/i);
+        console.log('[Cart] Footer text match:', footerMatch);
+        if (footerMatch) {
+          count = parseInt(footerMatch[1], 10) || 0;
+          console.log('[Cart] Found footer text count:', count);
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+          return;
+        }
+
+        // PRIORITY 4: Mini cart widget counter
+        const widgetCounter = document.querySelector('.ec-cart-widget__counter, .cart-counter, [data-cart-count]');
+        console.log('[Cart] Widget counter found:', widgetCounter);
+        if (widgetCounter && widgetCounter.textContent) {
+          count = parseInt(widgetCounter.textContent.trim(), 10) || 0;
+          console.log('[Cart] Found widget counter:', count);
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+          return;
+        }
+
+        // PRIORITY 5: Cart page item count (only on /products/cart page)
+        console.log('[Cart] Current pathname:', window.location.pathname);
+        if (window.location.pathname.includes('/cart')) {
+          const cartItems = document.querySelectorAll('.ec-cart__products li, [data-cart-item], .cart__item, .ec-cart-item');
+          console.log('[Cart] Cart page items found:', cartItems.length);
+          if (cartItems.length > 0) {
+            count = cartItems.length;
+            console.log('[Cart] Found cart page items:', count);
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+            return;
+          }
+
+          // Check for empty cart message
+          if (/your (shopping )?cart is empty/i.test(bodyText)) {
+            count = 0;
+            console.log('[Cart] Cart is empty (found empty message)');
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count: 0 }));
+            return;
+          }
+        }
+
+        // Default: send 0 if nothing found
+        console.log('[Cart] No cart count found anywhere, sending 0');
+        console.log('[Cart] Available HTML snippet:', document.body.innerHTML.substring(0, 500));
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count: 0 }));
+      } catch(e) {
+        console.error('[Cart] Error in sendCartCount:', e);
+      }
+    }
+
+    // Send immediately on load (to override any stale stored count), then check every 3 seconds
+    setTimeout(sendCartCount, 500);
+    setTimeout(sendCartCount, 1500);
+    setTimeout(sendCartCount, 2500);
+    setInterval(sendCartCount, 3000);
+
+    // Intercept "Continue Shopping", "Browse Store", and "Checkout" button clicks
+    let isTracking = false;
+
+    document.addEventListener('click', function(e) {
+      const target = e.target;
+      if (!target) return;
+
+      const text = (target.textContent || '').toLowerCase().trim();
+      const href = (target.getAttribute('href') || '').toLowerCase();
+      const className = (target.className || '').toLowerCase();
+
+      // Check if it's a checkout button - only track if cart has items
+      if (
+        text.includes('checkout') ||
+        text.includes('proceed to checkout') ||
+        text.includes('go to checkout') ||
+        href.includes('checkout') ||
+        className.includes('checkout')
+      ) {
+        if (isTracking) return;
+
+        // Only track if cart is NOT empty (has items)
+        const bodyText = document.body.innerText || '';
+        const isEmpty = /your (shopping )?cart is empty/i.test(bodyText);
+        if (isEmpty) {
+          console.log('[Cart] Checkout clicked but cart is empty - not tracking');
+          return;
+        }
+
+        console.log('[Cart] Checkout button clicked with items in cart');
+        isTracking = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'START_ORDER' }));
+        setTimeout(function() {
+          isTracking = false;
+        }, 1000);
+      }
+
+      // Check if it's a continue shopping or browse store button
+      if (
+        text.includes('continue shopping') ||
+        text.includes('browse store') ||
+        text.includes('shop now') ||
+        href.includes('/products') ||
+        className.includes('continue') ||
+        className.includes('browse')
+      ) {
+        console.log('[Cart] Continue/Browse button clicked - switching to browse tab');
+        e.preventDefault();
+        e.stopPropagation();
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'NAVIGATE_TO_BROWSE' }));
+      }
+    }, true);
+  })();
+  true;
+`;
+
+export default function CartTab() {
+  const ref = useRef<WebView>(null);
+  webviewRefs.cart = ref;
+  const { setCartCount } = useApp();
+  const { user } = useAuth();
+  const router = useRouter();
+
+  // Track screen time
+  useScreenTime('Cart', user?.uid);
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Force hide spinner after 8 seconds if WebView is stuck
+  useEffect(() => {
+    if (isLoading) {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
+        console.log('[Cart] Loading timeout - forcing spinner to hide');
+        setIsLoading(false);
+        setRefreshing(false);
+      }, 8000);
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [isLoading]);
+
+  return (
+    <View style={styles.container}>
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#5DB075" />
+        </View>
+      )}
+      <WebView
+        ref={ref}
+        source={{ uri: 'https://greenhauscc.com/products/cart' }}
+        style={styles.webview}
+        originWhitelist={['*']}
+        allowsInlineMediaPlayback
+        mediaPlaybackRequiresUserAction={false}
+        allowFileAccess
+        allowUniversalAccessFromFileURLs
+        mixedContentMode="always"
+        javaScriptEnabled
+        domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        pullToRefreshEnabled={true}
+        injectedJavaScript={CART_LISTENER_SCRIPT}
+        onLoadStart={() => {
+          console.log('[Cart] Load started');
+          setIsLoading(true);
+        }}
+        onLoadEnd={() => {
+          console.log('[Cart] Load ended');
+          setIsLoading(false);
+          setRefreshing(false);
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
+          // Re-inject on every load to ensure it's running
+          ref.current?.injectJavaScript(CART_LISTENER_SCRIPT);
+        }}
+        onError={(error) => {
+          console.error('[Cart] WebView error:', error.nativeEvent);
+          setIsLoading(false);
+          setRefreshing(false);
+        }}
+        onHttpError={(error) => {
+          console.error('[Cart] HTTP error:', error.nativeEvent);
+          setIsLoading(false);
+          setRefreshing(false);
+        }}
+        onMessage={(event) => {
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'CART_COUNT_CONFIRMED') {
+              // Cart tab sends authoritative count - always trust it
+              console.log('[Cart Tab] Received confirmed cart count:', data.count);
+              setCartCount(data.count, true); // Pass confirmed=true to force update
+            } else if (data.type === 'NAVIGATE_TO_BROWSE') {
+              // Switch to browse tab
+              router.push('/(tabs)/search');
+            } else if (data.type === 'START_ORDER') {
+              // Track checkout button click
+              if (shouldTrackStartOrder()) {
+                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+              }
+            }
+          } catch (e) {
+            console.error('[Cart Tab] Message error:', e);
+          }
+        }}
+        renderLoading={() => (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color="#5DB075" />
+          </View>
+        )}
+        startInLoadingState={false}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  webview: {
+    flex: 1,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+});

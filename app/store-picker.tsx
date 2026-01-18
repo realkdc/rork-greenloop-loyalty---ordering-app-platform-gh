@@ -39,7 +39,7 @@ export default function StorePickerScreen() {
     }
 
     // Track analytics
-    trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+    trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
 
     // Use the new hook to set the store ID
     await setStoreId(selectedStore.id);

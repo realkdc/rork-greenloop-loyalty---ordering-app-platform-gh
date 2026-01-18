@@ -11,6 +11,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { trackAnalyticsEvent } from "@/services/analytics";
 import { shouldTrackStartOrder } from "@/lib/trackingDebounce";
+import { trackPromoView, trackPromoClick } from "@/services/userBehavior";
 
 const INJECTED_CSS = `
   /* Hide header and footer only */
@@ -47,26 +48,14 @@ const INJECTED_CSS = `
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-
-      // Try cart badge selectors (works even when hidden with CSS)
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        const badgeCount = parseInt(badge.textContent.trim()) || 0;
-        count = badgeCount;
-      }
-
-      // Always send the count
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
-    }
+    // Home tab no longer sends cart counts
+    // Only Cart tab should report cart counts for accuracy
 
     // Watch for checkout button clicks
-    function watchAddToBag() {
+    function watchCheckoutButton() {
       // Debounce - only fire once per click
       let isTracking = false;
 
@@ -98,97 +87,9 @@ const INJECT_SCRIPT = `
           }, 1000);
         }
       }, true);
-
-      // Intercept XMLHttpRequest to update cart count
-      const originalXHROpen = XMLHttpRequest.prototype.open;
-      const originalXHRSend = XMLHttpRequest.prototype.send;
-
-      XMLHttpRequest.prototype.open = function(method, url) {
-        this._url = url;
-        return originalXHROpen.apply(this, arguments);
-      };
-
-      XMLHttpRequest.prototype.send = function() {
-        this.addEventListener('load', function() {
-          if (this.status >= 200 && this.status < 300) {
-            const url = this._url || '';
-            if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-              setTimeout(sendCartCount, 500);
-            }
-          }
-        });
-        return originalXHRSend.apply(this, arguments);
-      };
-
-      // Also intercept fetch requests as backup
-      const originalFetch = window.fetch;
-      window.fetch = function(...args) {
-        const promise = originalFetch.apply(this, args);
-        const url = args[0]?.toString() || '';
-
-        if (url.includes('/cart') || url.includes('add-to-cart') || url.includes('bag')) {
-          promise.then(response => {
-            if (response.ok) {
-              setTimeout(sendCartCount, 500);
-            }
-            return response;
-          }).catch(() => {});
-        }
-
-        return promise;
-      };
-
-      // Also watch for DOM mutations that might indicate cart update
-      const cartObserver = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          // Check if badge was updated
-          mutation.addedNodes.forEach((node) => {
-            if (node.nodeType === 1) {
-              const badge = node.querySelector?.('.ec-cart-widget__count, .ec-minicart__count');
-              if (badge) {
-                sendCartCount();
-              }
-            }
-          });
-        });
-      });
-
-      // Observe the entire document for cart badge changes
-      const headerArea = document.querySelector('header') || document.body;
-      if (headerArea) {
-        cartObserver.observe(headerArea, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['class']
-        });
-      }
     }
 
-    // Run immediately and on intervals
-    sendCartCount();
-    watchAddToBag();
-
-    // More aggressive initial cart count check (every 500ms for first 5 seconds)
-    let initialCheckCount = 0;
-    const initialCheck = setInterval(() => {
-      sendCartCount();
-      initialCheckCount++;
-      if (initialCheckCount >= 10) {
-        clearInterval(initialCheck);
-      }
-    }, 500);
-
-    setInterval(() => {
-      sendCartCount();
-    }, 2000);
-
-    // Watch for DOM changes
-    const observer = new MutationObserver(() => {
-      sendCartCount();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    watchCheckoutButton();
   })();
   true;
 `;
@@ -204,6 +105,8 @@ export default function HomeTab() {
   // WebView loading state
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showSlowLoadButton, setShowSlowLoadButton] = useState(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Promo modal state
   const [promos, setPromos] = useState<PromoRecord[]>([]);
@@ -242,6 +145,27 @@ export default function HomeTab() {
   useEffect(() => {
     dismissedForSession.current = false;
   }, [selectedStoreId]);
+
+  // Show refresh button after 15 seconds if WebView is stuck
+  useEffect(() => {
+    if (isLoading) {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
+        setShowSlowLoadButton(true);
+      }, 15000);
+    } else {
+      setShowSlowLoadButton(false);
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [isLoading]);
 
   // Auto-show modal after delay
   useEffect(() => {
@@ -319,11 +243,6 @@ export default function HomeTab() {
     setModalOpen(false);
   }, []);
 
-  const openModal = useCallback(() => {
-    if (!promos.length) return;
-    setModalOpen(true);
-  }, [promos.length]);
-
   useEffect(() => {
     if (currentPromoIndex >= promos.length && promos.length > 0) {
       setCurrentPromoIndex(0);
@@ -332,6 +251,20 @@ export default function HomeTab() {
 
   const currentPromo = promos[currentPromoIndex] ?? null;
 
+  const openModal = useCallback(() => {
+    if (!promos.length) return;
+    setModalOpen(true);
+
+    // Track promo view when modal opens
+    if (currentPromo) {
+      trackPromoView(
+        currentPromo.id || 'unknown',
+        currentPromo.title || 'Unknown Promo',
+        user?.uid
+      );
+    }
+  }, [promos.length, currentPromo, user?.uid]);
+
   const openPromoUrl = useCallback((url: string) => {
     if (!ref.current) return;
     const script = `(() => { try { window.location.href = ${JSON.stringify(url)}; } catch (_) {} return true; })();`;
@@ -339,9 +272,18 @@ export default function HomeTab() {
   }, []);
 
   const handlePromoView = useCallback((url: string) => {
+    // Track promo click
+    if (currentPromo) {
+      trackPromoClick(
+        currentPromo.id || 'unknown',
+        currentPromo.title || 'Unknown Promo',
+        user?.uid
+      );
+    }
+
     openPromoUrl(url);
     closeModal();
-  }, [openPromoUrl, closeModal]);
+  }, [openPromoUrl, closeModal, currentPromo, user?.uid]);
 
   const getCleanStoreName = useCallback((storeId?: string | null) => {
     if (!storeId) return 'STORE';
@@ -357,6 +299,7 @@ export default function HomeTab() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    setShowSlowLoadButton(false);
     ref.current?.reload();
     setTimeout(() => setRefreshing(false), 1000);
   }, []);
@@ -380,6 +323,16 @@ export default function HomeTab() {
       {isLoading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#5DB075" />
+          {showSlowLoadButton && (
+            <TouchableOpacity
+              style={styles.slowLoadButton}
+              onPress={onRefresh}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="refresh" size={20} color="#FFFFFF" />
+              <Text style={styles.slowLoadText}>Refresh Page</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
       <WebView
@@ -394,23 +347,39 @@ export default function HomeTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
         onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
           setIsLoading(false);
           setRefreshing(false);
+          if (loadingTimeoutRef.current) {
+            clearTimeout(loadingTimeoutRef.current);
+            loadingTimeoutRef.current = null;
+          }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
+        }}
+        onError={() => {
+          setIsLoading(false);
+          setRefreshing(false);
+        }}
+        onHttpError={() => {
+          setIsLoading(false);
+          setRefreshing(false);
         }}
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'CART_COUNT') {
-              setCartCount(data.count);
-            } else if (data.type === 'START_ORDER') {
+            // Home tab no longer handles CART_COUNT messages
+            // Only Cart tab updates cart count
+            if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
             }
           } catch (e) {}
@@ -542,6 +511,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  slowLoadButton: {
+    marginTop: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#1E4D3A',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  slowLoadText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   fab: {
     position: "absolute",

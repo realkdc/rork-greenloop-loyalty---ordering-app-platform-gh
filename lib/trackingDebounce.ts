@@ -1,5 +1,5 @@
 /**
- * Shared debouncing for START_ORDER_CLICK events across all tabs
+ * Shared debouncing for CHECKOUT_START events across all tabs
  * Prevents duplicate events when navigating between tabs after clicking checkout
  */
 

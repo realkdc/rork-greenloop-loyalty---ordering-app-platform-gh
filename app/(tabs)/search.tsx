@@ -21,6 +21,20 @@ const INJECTED_CSS = `
     padding-top: 20px !important;
   }
 
+  /* Hide SORT BY dropdown */
+  button:has-text("SORT BY"),
+  div:has(> button:contains("SORT BY")),
+  [class*="sort"],
+  [class*="Sort"],
+  .ec-sorting,
+  .product-sorting,
+  .catalog-sorting {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
   /* Hide vape categories and products */
   a[href*="/disposables"],
   a[href*="/Disposables"],
@@ -62,22 +76,76 @@ const INJECTED_CSS = `
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
-    // Send cart count to React Native
-    function sendCartCount() {
-      let count = 0;
-      const badge = document.querySelector('.ec-cart-widget__count, .ec-minicart__count, .cart-count, [data-cart-count]');
-      if (badge && badge.textContent) {
-        count = parseInt(badge.textContent.trim()) || 0;
-      }
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT', count }));
+    // Hide header, footer, nav only
+    function hideUIElements() {
+      ['header', 'footer', 'nav', '.breadcrumbs'].forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => el.style.display = 'none');
+      });
+
+      // Hide SORT BY dropdown - very aggressive
+      document.querySelectorAll('*').forEach(el => {
+        const text = el.textContent?.trim();
+        // Check if element or any child contains SORT BY
+        if (text === 'SORT BY' || (text && text.includes('SORT BY') && text.length < 50)) {
+          el.style.display = 'none';
+          el.style.visibility = 'hidden';
+          el.style.height = '0';
+          el.style.overflow = 'hidden';
+          // Also hide parent containers
+          if (el.parentElement) {
+            const parentText = el.parentElement.textContent?.trim();
+            if (parentText && parentText.includes('SORT BY') && parentText.length < 100) {
+              el.parentElement.style.display = 'none';
+            }
+          }
+        }
+        // Also check by class name
+        const className = el.className || '';
+        if (typeof className === 'string' && (className.includes('sort') || className.includes('Sort'))) {
+          el.style.display = 'none';
+        }
+      });
     }
 
-    // Send immediately and every 3 seconds
-    sendCartCount();
-    setInterval(sendCartCount, 3000);
+    // Run on page load
+    hideUIElements();
+    setInterval(hideUIElements, 1000);
+
+    // Browse tab no longer sends cart counts
+    // Only Cart tab should report cart counts for accuracy
+
+    // Track Add to Cart button clicks
+    document.addEventListener('click', function(e) {
+      let target = e.target;
+      if (!target) return;
+
+      // Check element and parents for add to cart button
+      let el = target;
+      let depth = 0;
+      while (el && depth < 5) {
+        const text = (el.textContent || '').toLowerCase().trim();
+        const className = (el.className || '').toString().toLowerCase();
+
+        if (
+          text === 'add to bag' ||
+          text === 'add to cart' ||
+          text.includes('add to bag') ||
+          text.includes('add to cart') ||
+          className.includes('add-to-cart') ||
+          className.includes('addtocart') ||
+          className.includes('ec-product__add-to-cart')
+        ) {
+          console.log('[Browse] Add to cart clicked');
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ADD_TO_CART' }));
+          return;
+        }
+        el = el.parentElement;
+        depth++;
+      }
+    }, true);
   })();
   true;
 `;
@@ -88,6 +156,7 @@ export default function SearchTab() {
   const router = useRouter();
   const { setCartCount } = useApp();
   const { user } = useAuth();
+
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -99,6 +168,15 @@ export default function SearchTab() {
       canGoBack: navState.canGoBack,
       canGoForward: navState.canGoForward,
     });
+
+    // Track product views (URLs with /p/ are product pages)
+    if (url.includes('/p/') && !navState.loading) {
+      // Extract product name from URL (e.g., /p/product-name-123)
+      const productMatch = url.match(/\/p\/([^/?]+)/);
+      const productSlug = productMatch ? productMatch[1] : 'unknown';
+      console.log('[Search] Product view detected:', productSlug);
+      trackAnalyticsEvent('PRODUCT_VIEW', { product: productSlug, url }, user?.uid);
+    }
 
     // If navigated to cart page, switch to cart tab and reload it
     if (url.includes('/cart') || url.includes('/products/cart')) {
@@ -131,30 +209,23 @@ export default function SearchTab() {
         mixedContentMode="always"
         javaScriptEnabled
         domStorageEnabled
+        sharedCookiesEnabled
+        thirdPartyCookiesEnabled
+        cacheEnabled={true}
+        incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => {
-          console.log('[Search] Load started');
-          setIsLoading(true);
-        }}
+        onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
-          console.log('[Search] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           ref.current?.injectJavaScript(INJECT_SCRIPT);
         }}
-        onLoadProgress={({ nativeEvent }) => {
-          console.log('[Search] Load progress:', nativeEvent.progress);
-        }}
-        onError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('[Search] WebView error:', nativeEvent);
+        onError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={(syntheticEvent) => {
-          const { nativeEvent } = syntheticEvent;
-          console.error('[Search] HTTP error:', nativeEvent.statusCode, nativeEvent.url);
+        onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
         }}
@@ -162,12 +233,15 @@ export default function SearchTab() {
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
-            if (data.type === 'CART_COUNT') {
-              setCartCount(data.count);
-            } else if (data.type === 'START_ORDER') {
+            // Browse tab no longer handles CART_COUNT messages
+            // Only Cart tab updates cart count
+            if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
+            } else if (data.type === 'ADD_TO_CART') {
+              console.log('[Browse] Tracking ADD_TO_CART event');
+              trackAnalyticsEvent('ADD_TO_CART', {}, user?.uid);
             }
           } catch (e) {}
         }}

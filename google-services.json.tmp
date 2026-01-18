@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "253214988919",
+    "project_id": "greenhaus-app",
+    "storage_bucket": "greenhaus-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:253214988919:android:12cf291f38365ce17bc472",
+        "android_client_info": {
+          "package_name": "app.rork.greenlooployaltyorderingplatform"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "253214988919-unbi2s8369k3aobdsbbpv6lec6k4a071.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZEsWXSX_UIhDP_x4_Lq0NtFtRUbPEMr4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "253214988919-unbi2s8369k3aobdsbbpv6lec6k4a071.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "253214988919-320tlu9vm5u798vl1to7pbiq74vovqsp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.greenhauscc.customer"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

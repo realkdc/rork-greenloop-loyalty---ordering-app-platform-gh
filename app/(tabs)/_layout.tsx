@@ -4,7 +4,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
-import React from "react";
+import React, { useRef } from "react";
 import { debugLog } from "@/lib/logger";
 import { WEBVIEW_MINIMAL_MODE } from "@/constants/config";
 import { trackAnalyticsEvent } from "@/services/analytics";
@@ -49,6 +49,9 @@ function TabsLayout() {
   const app = useApp?.() as ReturnType<typeof useApp> | undefined;
   const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
+
+  // Track current tab and when it was opened
+  const currentTabRef = useRef<{ name: string; startTime: number } | null>(null);
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
   debugLog('[TabLayout] 📊 Cart count:', cartCount);
@@ -106,8 +109,28 @@ function TabsLayout() {
               tabPress: () => {
                 debugLog(`[Tabs] 📱 Tab ${name} pressed`);
 
-                // Track tab view
-                trackAnalyticsEvent('VIEW_TAB', { tab: TAB_LABELS[name] as any }, user?.uid);
+                const now = Date.now();
+                const previousTab = currentTabRef.current;
+                const toTab = TAB_LABELS[name] || name;
+
+                // Track TAB_SWITCH with duration on previous tab
+                if (previousTab) {
+                  const duration = Math.floor((now - previousTab.startTime) / 1000);
+                  trackAnalyticsEvent('TAB_SWITCH', {
+                    from: previousTab.name,
+                    to: toTab,
+                    duration, // seconds spent on previous tab
+                  }, user?.uid);
+                } else {
+                  // First tab view of the session
+                  trackAnalyticsEvent('TAB_SWITCH', {
+                    from: null,
+                    to: toTab,
+                  }, user?.uid);
+                }
+
+                // Track current tab
+                currentTabRef.current = { name: toTab, startTime: now };
 
                 const ref = webviewRefs[name]?.current;
                 const targetUrl = TAB_URLS[name];
@@ -115,7 +138,13 @@ function TabsLayout() {
                 if (!ref || !targetUrl) return;
 
                 try {
-                  // Navigate to the tab's home URL
+                  // Skip navigation for cart tab - let it handle its own state
+                  if (name === 'cart') {
+                    debugLog(`[Tabs] 🛒 Cart tab pressed - skipping navigation to preserve cart state`);
+                    return;
+                  }
+
+                  // Navigate to the tab's home URL for other tabs
                   debugLog(`[Tabs] 🔄 Navigating ${name} tab to ${targetUrl}`);
                   ref.injectJavaScript(`
                     (function(){
