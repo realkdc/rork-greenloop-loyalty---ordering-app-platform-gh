@@ -10,43 +10,134 @@ import { submitAccountDeletionRequest } from "@/services/accountDeletion";
 import { useScreenTime } from "@/hooks/useScreenTime";
 import { lookupCustomer, type CustomerSegments } from "@/services/lightspeedCustomerLookup";
 import { MOCK_REWARDS } from "@/mocks/rewards";
+import { useRouter } from "expo-router";
 
 const INJECTED_CSS = `
-  /* Hide header and footer */
-  header, .ins-header, .site-header,
-  footer, .site-footer, .ec-footer,
-  nav, .navigation, .site-nav,
-  .breadcrumbs, .ec-breadcrumbs {
+  /* Hide headers, footers, navs, breadcrumbs - comprehensive selectors */
+  header,
+  footer,
+  nav,
+  .ins-header,
+  .site-header,
+  .ec-header,
+  .site-footer,
+  .ec-footer,
+  .navigation,
+  .site-nav,
+  .breadcrumbs,
+  .ec-breadcrumbs,
+  [role="banner"],
+  [role="navigation"],
+  [id*="tile-footer"],
+  [id*="tile-header"],
+  [id*="footer"],
+  [class*="footer"],
+  [class*="Footer"] {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 
   body {
-    padding-top: 20px !important;
+    padding-top: 0px !important;
+    margin-top: 0px !important;
+    padding-bottom: 0px !important;
+    margin-bottom: 0px !important;
   }
 `;
 
 const INJECT_SCRIPT = `
   (function() {
     const style = document.createElement('style');
-    style.textContent = \`${INJECTED_CSS}\`;
+    style.textContent = ${JSON.stringify(INJECTED_CSS)};
     document.head.appendChild(style);
 
-    // Hide headers, footers, and breadcrumbs
+    // Hide headers, footers, navs, breadcrumbs - same approach as cart/home pages
     function hideUIElements() {
-      ['header', 'footer', 'nav', '.site-header', '.site-footer', '.ins-header', '.ec-footer', '.breadcrumbs', '.ec-breadcrumbs'].forEach(selector => {
-        document.querySelectorAll(selector).forEach(el => {
-          el.style.display = 'none';
-        });
-      });
+      var selectors = [
+        'header', '.ins-header', '.site-header', '.ec-header',
+        'footer', '.site-footer', '.ec-footer',
+        'nav', '.navigation', '.site-nav',
+        '.breadcrumbs', '.ec-breadcrumbs',
+        '[role="banner"]', '[role="navigation"]',
+        '[id*="tile-footer"]', '[id*="tile-header"]'
+      ];
+      
+      for (var s = 0; s < selectors.length; s++) {
+        var els = document.querySelectorAll(selectors[s]);
+        for (var i = 0; i < els.length; i++) {
+          els[i].style.display = 'none';
+        }
+      }
+
+      // Hide menu grid items by finding parent containers with multiple menu items
+      var quickLinkLabels = ['Search Products', 'My Account', 'Track Orders', 'Favorites', 'Shopping Bag', 'Gift Cards'];
+      var sections = document.querySelectorAll('section, div, ul, nav');
+      for (var i = 0; i < sections.length; i++) {
+        var section = sections[i];
+        var text = (section.textContent || '').trim();
+        if (text.length > 50 && text.length < 500) {
+          var matchCount = 0;
+          for (var j = 0; j < quickLinkLabels.length; j++) {
+            if (text.indexOf(quickLinkLabels[j]) !== -1) {
+              matchCount++;
+            }
+          }
+          if (matchCount >= 3) {
+            section.style.display = 'none';
+            if (section.parentElement) {
+              section.parentElement.style.display = 'none';
+            }
+          }
+        }
+      }
+
+      // Hide "Have questions? Contact us" section and footer text
+      var allEls = document.querySelectorAll('*');
+      for (var i = 0; i < allEls.length; i++) {
+        var el = allEls[i];
+        var text = (el.textContent || '').trim();
+        
+        if (text.length > 10 && text.length < 300) {
+          var shouldHide = false;
+          
+          if (text === 'Have questions? Contact us' ||
+              (text.indexOf('LEGAL') !== -1 && text.indexOf('LEGIT') !== -1 && text.indexOf('LONG-LASTING') !== -1) ||
+              text === 'Greenhaus Cannabis Co.' ||
+              text === 'Terms & Conditions' ||
+              text === 'Report abuse') {
+            shouldHide = true;
+          }
+          
+          if (shouldHide) {
+            el.style.display = 'none';
+            var parent = el.parentElement;
+            if (parent) {
+              parent.style.display = 'none';
+              var grandParent = parent.parentElement;
+              if (grandParent && (grandParent.tagName === 'SECTION' || grandParent.tagName === 'FOOTER' || grandParent.tagName === 'DIV')) {
+                grandParent.style.display = 'none';
+              }
+            }
+          }
+        }
+      }
     }
 
-    // Run immediately and on DOM changes
+    // Run immediately
     hideUIElements();
-    setInterval(hideUIElements, 1000);
 
-    // Watch for DOM changes
-    const observer = new MutationObserver(hideUIElements);
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Watch for DOM changes with debouncing
+    var hideTimeout;
+    var observer = new MutationObserver(function() {
+      if (hideTimeout) clearTimeout(hideTimeout);
+      hideTimeout = setTimeout(hideUIElements, 100);
+    });
+    
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
 
     // Magic link detection
     if (typeof window.__ghMagicLinkCooldown === 'undefined') {
@@ -123,11 +214,13 @@ const INJECT_SCRIPT = `
     function extractCustomerEmail() {
       const bodyText = document.body.innerText || '';
 
-      // Method 1: Look for "Email" heading followed by email address
-      const emailSectionMatch = bodyText.match(/Email[\\s\\n]+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
+      // Method 1: Look for "Email" heading followed by email address (but not "Edit")
+      // Match pattern: "Email\n[email]\nEdit" and extract just the email
+      const emailSectionMatch = bodyText.match(/Email[\\s\\n]+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})[\\s\\n]*(?:Edit)?/i);
       if (emailSectionMatch) {
-        console.log('[Auth] Found email via Email section:', emailSectionMatch[1]);
-        return emailSectionMatch[1];
+        const cleanEmail = emailSectionMatch[1].replace(/Edit$/i, '').trim();
+        console.log('[Auth] Found email via Email section:', cleanEmail);
+        return cleanEmail;
       }
 
       // Method 2: Look for "Welcome, email@example.com!" pattern (exact Lightspeed format)
@@ -212,6 +305,7 @@ export default function ProfileTab() {
   webviewRefs.profile = ref;
   const insets = useSafeAreaInsets();
   const { user, signIn, updateUser } = useAuth();
+  const router = useRouter();
 
   // Track screen time
   useScreenTime('Profile', user?.uid);
@@ -224,12 +318,22 @@ export default function ProfileTab() {
   const hasAppliedLinkRef = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [isSubmittingDelete, setIsSubmittingDelete] = useState(false);
+  const [currentUrl, setCurrentUrl] = useState('https://greenhauscc.com/account');
 
   // Rewards UI state
   const [customerData, setCustomerData] = useState<CustomerSegments | null>(null);
   const [showRewards, setShowRewards] = useState(false);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
   const rewardsSlideAnim = useRef(new Animated.Value(1000)).current;
+
+  // Determine if we're on the main account page (not a sub-page like /account/edit)
+  // Main page: /account or /account/ (with optional query params or hash)
+  // Sub-pages: /account/edit, /account/addresses, etc.
+  const isMainAccountPage = currentUrl === 'https://greenhauscc.com/account' || 
+                           currentUrl === 'https://greenhauscc.com/account/' ||
+                           (currentUrl.includes('/account') && 
+                            !currentUrl.match(/\/account\/[^\/?#]+/) && 
+                            !currentUrl.match(/\/account#/));
 
   // Force hide spinner after 8 seconds if WebView is stuck
   useEffect(() => {
@@ -257,6 +361,7 @@ export default function ProfileTab() {
     setIsLoadingCustomer(true);
     try {
       console.log('🔍 [Profile] Fetching customer data for:', email);
+
       const data = await lookupCustomer(email);
 
       if (data) {
@@ -282,6 +387,25 @@ export default function ProfileTab() {
       setIsLoadingCustomer(false);
     }
   }, [rewardsSlideAnim]);
+
+  // Auto-fetch customer data if user is already logged in
+  useEffect(() => {
+    // Get email from user object - try email field first, then uid
+    const userEmail = user?.email || user?.uid;
+
+    console.log('🔄 [Profile] Auto-fetch check:', {
+      userEmail,
+      hasCustomerData: !!customerData,
+      isLoadingCustomer,
+      showRewards,
+    });
+
+    // Check if user has email and we haven't loaded customer data yet
+    if (userEmail && userEmail.includes('@') && !customerData && !isLoadingCustomer && !showRewards) {
+      console.log('🔄 [Profile] User already logged in, auto-fetching customer data for:', userEmail);
+      fetchCustomerData(userEmail);
+    }
+  }, [user?.email, user?.uid, customerData, isLoadingCustomer, showRewards, fetchCustomerData]);
 
   const handleManualPaste = useCallback(async () => {
     try {
@@ -481,6 +605,11 @@ export default function ProfileTab() {
           <ActivityIndicator size="large" color="#5DB075" />
         </View>
       )}
+      {/* Native header cover - hides the webview header (only on main account page, not sub-pages) */}
+      {!showRewards && isMainAccountPage && (
+        <View style={styles.headerCover} pointerEvents="none" />
+      )}
+
       <WebView
         ref={ref}
         source={{ uri: 'https://greenhauscc.com/account' }}
@@ -497,7 +626,22 @@ export default function ProfileTab() {
         thirdPartyCookiesEnabled
         cacheEnabled={true}
         incognito={false}
-        pullToRefreshEnabled={true}
+        pullToRefreshEnabled={false}
+        bounces={false}
+        injectedJavaScriptBeforeContentLoaded={`
+          (function() {
+            var style = document.createElement('style');
+            style.textContent = ${JSON.stringify(INJECTED_CSS)};
+            if (document.head) {
+              document.head.appendChild(style);
+            } else {
+              document.addEventListener('DOMContentLoaded', function() {
+                document.head.appendChild(style);
+              });
+            }
+          })();
+          true;
+        `}
         injectedJavaScript={INJECT_SCRIPT}
         onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {
@@ -516,6 +660,9 @@ export default function ProfileTab() {
         onHttpError={() => {
           setIsLoading(false);
           setRefreshing(false);
+        }}
+        onNavigationStateChange={(navState) => {
+          setCurrentUrl(navState.url);
         }}
         onMessage={handleMessage}
         userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
@@ -556,73 +703,6 @@ export default function ProfileTab() {
         </View>
       )}
 
-      {/* Rewards Toggle Button - only show if customer data available */}
-      {customerData && !showRewards && (
-        <TouchableOpacity
-          onPress={() => {
-            setShowRewards(true);
-            Animated.spring(rewardsSlideAnim, {
-              toValue: 0,
-              useNativeDriver: true,
-              tension: 50,
-              friction: 8,
-            }).start();
-          }}
-          activeOpacity={0.85}
-          style={[
-            styles.rewardsToggleButton,
-            {
-              top: Math.max(insets.top, 16) + 10,
-            },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="View rewards"
-        >
-          <Ionicons name="gift-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.rewardsToggleLabel}>Rewards</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Debug: Manual Trigger Button - shows when logged in but no customer data */}
-      {user?.email && !customerData && !isLoadingCustomer && (
-        <TouchableOpacity
-          onPress={() => {
-            if (user.email) {
-              fetchCustomerData(user.email);
-            }
-          }}
-          activeOpacity={0.85}
-          style={[
-            styles.debugButton,
-            {
-              top: Math.max(insets.top, 16) + 10,
-              left: 16,
-            },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Load rewards"
-        >
-          <Ionicons name="refresh-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.debugButtonLabel}>Load Rewards</Text>
-        </TouchableOpacity>
-      )}
-
-      <TouchableOpacity
-        onPress={handleDeleteAccount}
-        activeOpacity={0.85}
-        style={[
-          styles.deleteButton,
-          {
-            top: Math.max(insets.top, 16) + 10,
-            right: customerData && !showRewards ? 100 : 16, // Adjust position if rewards button is visible
-          },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="Delete my account"
-      >
-        <Ionicons name="trash-outline" size={16} color="#FFFFFF" />
-        <Text style={styles.deleteButtonLabel}>Delete</Text>
-      </TouchableOpacity>
 
       <Modal
         visible={showDeleteModal}
@@ -683,6 +763,25 @@ export default function ProfileTab() {
         </View>
       </Modal>
 
+      {/* Floating Rewards Button - shows when rewards are hidden but data exists */}
+      {!showRewards && customerData && (
+        <TouchableOpacity
+          style={styles.floatingRewardsButton}
+          onPress={() => {
+            setShowRewards(true);
+            Animated.spring(rewardsSlideAnim, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 50,
+              friction: 8,
+            }).start();
+          }}
+        >
+          <Ionicons name="gift" size={20} color="#FFFFFF" />
+          <Text style={styles.floatingRewardsButtonText}>View Rewards</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Native Rewards UI */}
       {showRewards && customerData && (
         <Animated.View
@@ -696,6 +795,7 @@ export default function ProfileTab() {
           <View style={[styles.rewardsHeader, { paddingTop: Math.max(insets.top, 16) + 10 }]}>
             <TouchableOpacity
               onPress={() => {
+                // Navigate back to webview
                 Animated.timing(rewardsSlideAnim, {
                   toValue: 1000,
                   duration: 300,
@@ -706,7 +806,7 @@ export default function ProfileTab() {
               }}
               style={styles.closeRewardsButton}
             >
-              <Ionicons name="chevron-down" size={28} color="#1E4D3A" />
+              <Ionicons name="chevron-back" size={24} color="#1E4D3A" />
             </TouchableOpacity>
             <Text style={styles.rewardsHeaderTitle}>Your Rewards</Text>
             <View style={{ width: 40 }} />
@@ -736,11 +836,7 @@ export default function ProfileTab() {
                   </Text>
                   <Text style={styles.statLabel}>Lifetime Value</Text>
                 </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statValue}>{customerData.orderCount || 0}</Text>
-                  <Text style={styles.statLabel}>Orders</Text>
-                </View>
+
                 {customerData.isVIP && (
                   <>
                     <View style={styles.statDivider} />
@@ -770,7 +866,34 @@ export default function ProfileTab() {
               </View>
             )}
 
-            {/* Available Rewards */}
+            {/* Tier Perks */}
+            {customerData.tier && (
+              <View style={styles.rewardsSection}>
+                <Text style={styles.sectionTitle}>Your Tier Benefits</Text>
+                {getTierPerks(customerData.tier).map((perk, index) => (
+                  <View key={index} style={styles.perkCard}>
+                    <View style={styles.perkIconContainer}>
+                      <Ionicons
+                        name={
+                          perk.type === 'discount' ? 'pricetag' :
+                          perk.type === 'access' ? 'time' :
+                          perk.type === 'service' ? 'star' :
+                          'gift'
+                        }
+                        size={24}
+                        color="#5DB075"
+                      />
+                    </View>
+                    <View style={styles.perkInfo}>
+                      <Text style={styles.perkTitle}>{perk.title}</Text>
+                      <Text style={styles.perkDescription}>{perk.description}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* FUTURE: Point-based rewards system (currently using tier-based perks from Lightspeed)
             <View style={styles.rewardsSection}>
               <Text style={styles.sectionTitle}>Available Rewards</Text>
               {MOCK_REWARDS.filter(r => r.available).map((reward) => (
@@ -791,6 +914,50 @@ export default function ProfileTab() {
                   </TouchableOpacity>
                 </View>
               ))}
+            </View>
+            */}
+
+            {/* Account Settings Section */}
+            <View style={styles.settingsSection}>
+              <Text style={styles.sectionTitle}>Account Settings</Text>
+
+              <TouchableOpacity
+                style={styles.settingsButton}
+                onPress={() => {
+                  // Navigate to orders tab
+                  router.push('/(tabs)/orders');
+                }}
+              >
+                <Ionicons name="receipt-outline" size={20} color="#1E4D3A" />
+                <Text style={styles.settingsButtonText}>View Orders</Text>
+                <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.settingsButton}
+                onPress={() => {
+                  Animated.timing(rewardsSlideAnim, {
+                    toValue: 1000,
+                    duration: 300,
+                    useNativeDriver: true,
+                  }).start(() => {
+                    setShowRewards(false);
+                  });
+                }}
+              >
+                <Ionicons name="settings-outline" size={20} color="#1E4D3A" />
+                <Text style={styles.settingsButtonText}>Manage Account Details</Text>
+                <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.settingsButton, styles.deleteAccountButton]}
+                onPress={handleDeleteAccount}
+              >
+                <Ionicons name="trash-outline" size={20} color="#DC2626" />
+                <Text style={styles.deleteAccountButtonText}>Delete Account</Text>
+                <Ionicons name="chevron-forward" size={20} color="#DC2626" />
+              </TouchableOpacity>
             </View>
 
             {/* Bottom padding for scroll */}
@@ -823,6 +990,34 @@ function getTierDescription(tier: string): string {
     'Bud': 'Growing strong! You\'re on your way to premium benefits.',
   };
   return descriptions[tier] || 'Keep shopping to unlock more rewards!';
+}
+
+function getTierPerks(tier: string): Array<{ title: string; description: string; type: string }> {
+  const perks: Record<string, Array<{ title: string; description: string; type: string }>> = {
+    'Seed': [
+      { title: '10% Off Accessories & Drinks', description: 'Member pricing on smoking accessories and beverages', type: 'discount' },
+      { title: 'Member-Only Drops', description: 'Early access to new products and special releases', type: 'access' },
+      { title: 'App-First Promos', description: 'Exclusive promotions available only in the app', type: 'promo' },
+    ],
+    'Sprout': [
+      { title: '$8 Off Orders $75+', description: 'Automatic cart discount on qualifying orders', type: 'discount' },
+      { title: '12% Off Accessories & Drinks', description: 'Enhanced member pricing', type: 'discount' },
+      { title: '24h Early Access', description: 'Shop drops and restocks a full day early', type: 'access' },
+    ],
+    'Bloom': [
+      { title: '$12 Off Orders $100+', description: 'Automatic cart discount on qualifying orders', type: 'discount' },
+      { title: '48h Early Access', description: 'Shop limited drops two days before everyone else', type: 'access' },
+      { title: 'Hold Items 24h', description: 'Reserve products for pickup within 24 hours', type: 'service' },
+      { title: 'Monthly Bundle Deal', description: 'Exclusive pre-built bundle promotion each month', type: 'promo' },
+    ],
+    'Evergreen': [
+      { title: '$15 Off Orders $125+', description: 'Premium cart discount on qualifying orders', type: 'discount' },
+      { title: '15% Off Accessories & Drinks', description: 'VIP member pricing', type: 'discount' },
+      { title: 'VIP Private Drops', description: 'Exclusive access to limited-time products', type: 'access' },
+      { title: 'Priority Support', description: 'Faster issue resolution and dedicated help', type: 'service' },
+    ],
+  };
+  return perks[tier] || [];
 }
 
 function getNextTierInfo(lifetimeValue: number, currentTier: string): string | null {
@@ -864,6 +1059,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1000,
+  },
+  headerCover: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 85,
+    backgroundColor: '#FFFFFF',
+    zIndex: 500,
   },
   helperBanner: {
     position: 'absolute',
@@ -1125,14 +1329,16 @@ const styles = StyleSheet.create({
   },
   customerCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
     marginTop: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
   },
   customerHeader: {
     flexDirection: 'row',
@@ -1165,25 +1371,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
   },
   statItem: {
     flex: 1,
     alignItems: 'center',
+    paddingVertical: 8,
   },
   statValue: {
-    fontSize: 24,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
     color: '#1E4D3A',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   statLabel: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
     textAlign: 'center',
+    fontWeight: '500',
   },
   statDivider: {
     width: 1,
-    height: 40,
+    height: 50,
     backgroundColor: '#E5E7EB',
   },
   tierInfoCard: {
@@ -1223,6 +1434,42 @@ const styles = StyleSheet.create({
   },
   rewardsSection: {
     marginTop: 16,
+  },
+  perkCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  perkIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F0FDF4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  perkInfo: {
+    flex: 1,
+  },
+  perkTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  perkDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    lineHeight: 20,
   },
   rewardCard: {
     backgroundColor: '#FFFFFF',
@@ -1284,6 +1531,66 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   redeemButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  settingsSection: {
+    marginTop: 20,
+  },
+  settingsButton: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  settingsButtonText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E4D3A',
+    marginLeft: 12,
+  },
+  deleteAccountButton: {
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FFF5F5',
+  },
+  deleteAccountButtonText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#DC2626',
+    marginLeft: 12,
+  },
+  floatingRewardsButton: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    backgroundColor: '#1E4D3A',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 100,
+  },
+  floatingRewardsButtonText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#FFFFFF',
