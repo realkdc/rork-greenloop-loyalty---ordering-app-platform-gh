@@ -117,6 +117,9 @@ const INJECT_SCRIPT = `
     // Browse tab no longer sends cart counts
     // Only Cart tab should report cart counts for accuracy
 
+    // Debounce add to cart tracking
+    window.__ghLastAddToCart = window.__ghLastAddToCart || 0;
+
     // Track Add to Cart button clicks
     document.addEventListener('click', function(e) {
       let target = e.target;
@@ -138,6 +141,14 @@ const INJECT_SCRIPT = `
           className.includes('addtocart') ||
           className.includes('ec-product__add-to-cart')
         ) {
+          // Debounce: only fire once every 2 seconds
+          var now = Date.now();
+          if (now - window.__ghLastAddToCart < 2000) {
+            console.log('[Browse] Add to cart debounced');
+            return;
+          }
+          window.__ghLastAddToCart = now;
+
           console.log('[Browse] Add to cart clicked');
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ADD_TO_CART' }));
           return;
@@ -214,6 +225,7 @@ export default function SearchTab() {
         cacheEnabled={true}
         incognito={false}
         pullToRefreshEnabled={true}
+        allowsBackForwardNavigationGestures={true}
         injectedJavaScript={INJECT_SCRIPT}
         onLoadStart={() => setIsLoading(true)}
         onLoadEnd={() => {

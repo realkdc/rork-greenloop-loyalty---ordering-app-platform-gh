@@ -73,9 +73,9 @@ const CART_LISTENER_SCRIPT = `
       const bodyText = document.body.innerText || '';
       const currentUrl = window.location.href;
 
-      // ONLY send cart count if we're actually on the cart page
+      // ONLY send cart count if we're on cart or checkout pages
       // Don't send counts from product pages or other pages
-      if (!currentUrl.includes('/cart')) {
+      if (!currentUrl.includes('/cart') && !currentUrl.includes('/checkout') && !bodyText.includes('Checkout')) {
         return;
       }
 
@@ -103,7 +103,8 @@ const CART_LISTENER_SCRIPT = `
       }
 
       // If no Qty values visible and we haven't tried to expand yet, expand the cart
-      if (!hasExpanded) {
+      // But only try to expand on the cart page, not checkout page
+      if (!hasExpanded && currentUrl.includes('/products/cart')) {
         hasExpanded = true;
         expandCart();
         setTimeout(sendCartCount, 300); // Recheck after expanding
@@ -303,6 +304,7 @@ export default function CartTab() {
         cacheEnabled={true}
         incognito={false}
         pullToRefreshEnabled={true}
+        allowsBackForwardNavigationGestures={true}
         injectedJavaScript={CART_LISTENER_SCRIPT}
         onLoadStart={() => {
           console.log('[Cart] Load started');
