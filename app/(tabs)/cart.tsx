@@ -284,25 +284,11 @@ export default function CartTab() {
   // Reload cart when tab is focused to ensure fresh content
   useFocusEffect(
     useCallback(() => {
-      console.log('[Cart] Tab focused, currentUrl:', currentUrl);
-
-      // If we're on checkout or any non-cart page, navigate back to cart
-      if (currentUrl && !currentUrl.includes('/products/cart')) {
-        console.log('[Cart] Not on cart page, navigating back to cart');
-        if (ref.current) {
-          ref.current.injectJavaScript(`
-            window.location.href = 'https://greenhauscc.com/products/cart';
-            true;
-          `);
-        }
-      } else {
-        // Already on cart page, just reload
-        console.log('[Cart] On cart page, reloading');
-        if (ref.current) {
-          ref.current.reload();
-        }
+      console.log('[Cart] Tab focused - reloading');
+      if (ref.current) {
+        ref.current.reload();
       }
-    }, [currentUrl])
+    }, [])
   );
 
   return (
