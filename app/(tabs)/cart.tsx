@@ -91,11 +91,22 @@ const CART_LISTENER_SCRIPT = `
         return;
       }
 
-      // Method 1: Sum "Qty: X" values (most accurate when visible)
+      // Method 1: Sum "Qty: X" values (most accurate when visible on cart page)
       const qtyMatches = bodyText.match(/Qty:\\s*(\\d+)/gi);
       if (qtyMatches && qtyMatches.length > 0) {
         count = qtyMatches.reduce((sum, match) => {
           const num = parseInt(match.replace(/Qty:\\s*/i, '')) || 0;
+          return sum + num;
+        }, 0);
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
+        return;
+      }
+
+      // Method 1b: Sum "× X" or "x X" values (checkout page format)
+      const timesMatches = bodyText.match(/[×x]\\s*(\\d+)/gi);
+      if (timesMatches && timesMatches.length > 0) {
+        count = timesMatches.reduce((sum, match) => {
+          const num = parseInt(match.replace(/[×x]\\s*/i, '')) || 0;
           return sum + num;
         }, 0);
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CART_COUNT_CONFIRMED', count }));
