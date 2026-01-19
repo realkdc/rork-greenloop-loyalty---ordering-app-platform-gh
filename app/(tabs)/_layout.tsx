@@ -4,7 +4,7 @@ import { useApp } from "@/contexts/AppContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Store } from "@/config/greenhaus";
-import React from "react";
+import React, { useRef } from "react";
 import { debugLog } from "@/lib/logger";
 import { WEBVIEW_MINIMAL_MODE, getPlatformConfig } from "@/constants/config";
 import { trackAnalyticsEvent } from "@/services/analytics";
@@ -50,6 +50,7 @@ function TabsLayout() {
   const { user } = useAuth();
   const cartCount = app?.cartCount ?? 0;
   const platformConfig = getPlatformConfig();
+  const currentTabRef = useRef<{ name: string; startTime: number } | null>(null);
 
   debugLog('[TabLayout] 🎨 Rendering tabs');
   debugLog('[TabLayout] 📊 Cart count:', cartCount);
@@ -90,7 +91,16 @@ function TabsLayout() {
         listeners={{
           tabPress: () => {
             debugLog('[Tabs] 📱 Tab home pressed');
-            trackAnalyticsEvent('VIEW_TAB', { tab: 'Home' }, user?.uid);
+            const now = Date.now();
+            const prev = currentTabRef.current;
+            const toTab = TAB_LABELS.home;
+            if (prev) {
+              const duration = Math.floor((now - prev.startTime) / 1000);
+              trackAnalyticsEvent('TAB_SWITCH', { from: prev.name, to: toTab, duration }, user?.uid);
+            } else {
+              trackAnalyticsEvent('TAB_SWITCH', { from: null, to: toTab }, user?.uid);
+            }
+            currentTabRef.current = { name: toTab, startTime: now };
             const ref = webviewRefs.home?.current;
             const targetUrl = TAB_URLS.home;
             if (!ref || !targetUrl) return;
@@ -137,7 +147,16 @@ function TabsLayout() {
         listeners={{
           tabPress: () => {
             debugLog('[Tabs] 📱 Tab search pressed');
-            trackAnalyticsEvent('VIEW_TAB', { tab: 'Browse' }, user?.uid);
+            const now = Date.now();
+            const prev = currentTabRef.current;
+            const toTab = TAB_LABELS.search;
+            if (prev) {
+              const duration = Math.floor((now - prev.startTime) / 1000);
+              trackAnalyticsEvent('TAB_SWITCH', { from: prev.name, to: toTab, duration }, user?.uid);
+            } else {
+              trackAnalyticsEvent('TAB_SWITCH', { from: null, to: toTab }, user?.uid);
+            }
+            currentTabRef.current = { name: toTab, startTime: now };
             const ref = webviewRefs.search?.current;
             const targetUrl = TAB_URLS.search;
             if (!ref || !targetUrl) return;
@@ -187,7 +206,16 @@ function TabsLayout() {
         listeners={{
           tabPress: () => {
             debugLog('[Tabs] 📱 Tab cart pressed');
-            trackAnalyticsEvent('VIEW_TAB', { tab: 'Cart' }, user?.uid);
+            const now = Date.now();
+            const prev = currentTabRef.current;
+            const toTab = TAB_LABELS.cart;
+            if (prev) {
+              const duration = Math.floor((now - prev.startTime) / 1000);
+              trackAnalyticsEvent('TAB_SWITCH', { from: prev.name, to: toTab, duration }, user?.uid);
+            } else {
+              trackAnalyticsEvent('TAB_SWITCH', { from: null, to: toTab }, user?.uid);
+            }
+            currentTabRef.current = { name: toTab, startTime: now };
             const ref = webviewRefs.cart?.current;
             const targetUrl = TAB_URLS.cart;
             if (!ref || !targetUrl) return;
@@ -234,7 +262,16 @@ function TabsLayout() {
         listeners={{
           tabPress: () => {
             debugLog('[Tabs] 📱 Tab orders pressed');
-            trackAnalyticsEvent('VIEW_TAB', { tab: 'Orders' }, user?.uid);
+            const now = Date.now();
+            const prev = currentTabRef.current;
+            const toTab = TAB_LABELS.orders;
+            if (prev) {
+              const duration = Math.floor((now - prev.startTime) / 1000);
+              trackAnalyticsEvent('TAB_SWITCH', { from: prev.name, to: toTab, duration }, user?.uid);
+            } else {
+              trackAnalyticsEvent('TAB_SWITCH', { from: null, to: toTab }, user?.uid);
+            }
+            currentTabRef.current = { name: toTab, startTime: now };
             const ref = webviewRefs.orders?.current;
             const targetUrl = TAB_URLS.orders;
             if (!ref || !targetUrl) return;
@@ -280,7 +317,16 @@ function TabsLayout() {
         listeners={{
           tabPress: () => {
             debugLog('[Tabs] 📱 Tab profile pressed');
-            trackAnalyticsEvent('VIEW_TAB', { tab: 'Account' }, user?.uid);
+            const now = Date.now();
+            const prev = currentTabRef.current;
+            const toTab = TAB_LABELS.profile;
+            if (prev) {
+              const duration = Math.floor((now - prev.startTime) / 1000);
+              trackAnalyticsEvent('TAB_SWITCH', { from: prev.name, to: toTab, duration }, user?.uid);
+            } else {
+              trackAnalyticsEvent('TAB_SWITCH', { from: null, to: toTab }, user?.uid);
+            }
+            currentTabRef.current = { name: toTab, startTime: now };
             const ref = webviewRefs.profile?.current;
             const targetUrl = TAB_URLS.profile;
             if (!ref || !targetUrl) return;

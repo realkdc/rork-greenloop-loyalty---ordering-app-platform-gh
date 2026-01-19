@@ -238,7 +238,7 @@ export default function CartTab() {
             } else if (data.type === 'START_ORDER') {
               // Track checkout button click
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
             }
           } catch (e) {}

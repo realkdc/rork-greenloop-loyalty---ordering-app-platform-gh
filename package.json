@@ -9,7 +9,10 @@
     "start-web-dev": "DEBUG=expo* bunx rork start -p jo14xc6tgtcr7szg3zr3z --web --tunnel",
     "lint": "expo lint",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "build:android": "eas build --platform android --profile production --non-interactive",
+    "submit:android": "eas submit --platform android --profile production --latest --non-interactive",
+    "release:android": "eas build --platform android --profile production --non-interactive && eas submit --platform android --profile production --latest --non-interactive"
   },
   "dependencies": {
     "@ai-sdk/react": "^2.0.72",

@@ -132,18 +132,29 @@ For detailed instructions, visit [Expo's App Store deployment guide](https://doc
 
 ### **Publish to Google Play (Android)**
 
-1. **Build for Android**:
+On the **android-googleplay** branch this is the path used for Play Store updates. Use `npx` so the correct EAS CLI runs:
 
+1. **Build** (runs on EAS; takes ~10–20 min):
    ```bash
-   eas build --platform android
+   npx eas build --platform android --profile production
    ```
+   Or: `bun run build:android` / `npm run build:android`
 
-2. **Submit to Google Play**:
+2. **Submit** (after the build has finished on [expo.dev](https://expo.dev)):
    ```bash
-   eas submit --platform android
+   npx eas submit --platform android --profile production --latest
    ```
+   Or: `bun run submit:android` / `npm run submit:android`
 
-For detailed instructions, visit [Expo's Google Play deployment guide](https://docs.expo.dev/submit/android/).
+**One command (build + submit):** Submit uses the latest *completed* build. If the new build is still running, run submit again after it finishes.
+   ```bash
+   npx eas build --platform android --profile production && npx eas submit --platform android --profile production --latest
+   ```
+   Or: `bun run release:android` / `npm run release:android`
+
+**EAS secrets (production):** Set `EXPO_PUBLIC_LIGHTSPEED_TOKEN`, `EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX`, `EXPO_PUBLIC_API_URL`, and Firebase vars in the [Expo dashboard](https://expo.dev) (Project → Secrets) so production builds have the right config.
+
+For more detail, see [Expo's Google Play deployment guide](https://docs.expo.dev/submit/android/).
 
 ### **Publish as a Website**
 

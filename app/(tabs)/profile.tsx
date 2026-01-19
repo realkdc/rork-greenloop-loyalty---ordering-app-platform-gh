@@ -10,6 +10,7 @@ import { submitAccountDeletionRequest } from "@/services/accountDeletion";
 import { lookupCustomer, type CustomerSegments } from "@/services/lightspeedCustomerLookup";
 import { MOCK_REWARDS } from "@/mocks/rewards";
 import { useRouter } from "expo-router";
+import { getPlatformConfig, BRAND_CONFIG } from "@/constants/config";
 
 const INJECTED_CSS = `
   /* Hide headers, footers, navs, breadcrumbs - comprehensive selectors */
@@ -282,7 +283,7 @@ export default function ProfileTab() {
     };
   }, [isLoading]);
 
-  // Fetch customer data from Lightspeed
+  // Fetch customer data from Lightspeed (same as iOS — no fallback; only real data)
   const fetchCustomerData = useCallback(async (email: string) => {
     setIsLoadingCustomer(true);
     try {
@@ -612,7 +613,10 @@ export default function ProfileTab() {
           }, 500);
         }}
         onMessage={handleMessage}
-        userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        userAgent={Platform.OS === 'android'
+          ? "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
+          : "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        }
         renderLoading={() => (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#5DB075" />
@@ -871,8 +875,13 @@ export default function ProfileTab() {
               <TouchableOpacity
                 style={styles.settingsButton}
                 onPress={() => {
-                  // Navigate to orders tab
-                  router.push('/(tabs)/orders');
+                  const platformConfig = getPlatformConfig();
+                  // On Android Google Play, Orders tab is hidden — open orders in browser
+                  if (Platform.OS === 'android' && !platformConfig.showOrders) {
+                    Linking.openURL(BRAND_CONFIG.storeUrls.orders);
+                  } else {
+                    router.push('/(tabs)/orders');
+                  }
                 }}
               >
                 <Ionicons name="receipt-outline" size={20} color="#1E4D3A" />

@@ -618,7 +618,7 @@ export default function SearchTab() {
               openInExternalBrowser(url);
             } else if (data.type === 'START_ORDER') {
               if (shouldTrackStartOrder()) {
-                trackAnalyticsEvent('START_ORDER_CLICK', {}, user?.uid);
+                trackAnalyticsEvent('CHECKOUT_START', {}, user?.uid);
               }
             }
           } catch (e) {

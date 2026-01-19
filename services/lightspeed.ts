@@ -5,9 +5,12 @@
  * Handles authentication, error handling, and data transformation.
  */
 
-const TOKEN = process.env.EXPO_PUBLIC_LIGHTSPEED_TOKEN || '';
-const DOMAIN_PREFIX = process.env.EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX || 'greenhauscannabisco';
+const TOKEN = (process.env.EXPO_PUBLIC_LIGHTSPEED_TOKEN || '').trim();
+const DOMAIN_PREFIX = (process.env.EXPO_PUBLIC_LIGHTSPEED_DOMAIN_PREFIX || 'greenhauscannabisco').trim();
 const API_BASE = `https://${DOMAIN_PREFIX}.retail.lightspeed.app/api/2.0`;
+
+// Helpful 401 hint (avoids logging the token)
+const LIGHTSPEED_401_HINT = `Check EXPO_PUBLIC_LIGHTSPEED_TOKEN in .env is set and valid. Regenerate at: https://${DOMAIN_PREFIX}.retail.lightspeed.app/setup/api (Personal tokens). For EAS builds, set in project secrets.`;
 
 interface LightspeedResponse<T> {
   data?: T;
@@ -28,6 +31,12 @@ interface LightspeedResponse<T> {
 }
 
 async function apiRequest<T = any>(endpoint: string): Promise<T> {
+  if (!TOKEN) {
+    throw new Error(
+      'EXPO_PUBLIC_LIGHTSPEED_TOKEN is not set. Add it to .env for local dev (see docs/LIGHTSPEED_API_SETUP.md). For EAS builds, set in EAS project secrets.'
+    );
+  }
+
   const url = `${API_BASE}${endpoint}`;
   const response = await fetch(url, {
     headers: {
@@ -37,8 +46,11 @@ async function apiRequest<T = any>(endpoint: string): Promise<T> {
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Lightspeed API Error (${response.status}): ${error}`);
+    const body = await response.text();
+    if (response.status === 401) {
+      throw new Error(`Lightspeed API Error (401): ${body || 'Unauthorized'}. ${LIGHTSPEED_401_HINT}`);
+    }
+    throw new Error(`Lightspeed API Error (${response.status}): ${body}`);
   }
 
   return response.json();

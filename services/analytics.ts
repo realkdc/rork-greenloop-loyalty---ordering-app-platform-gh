@@ -5,17 +5,31 @@
 
 import { APP_CONFIG } from '@/constants/config';
 
-// Analytics event types
+// Analytics event types (aligned with iOS and admin dashboard)
 export type AnalyticsEventType =
   | 'APP_OPEN'
+  | 'SESSION_START'
+  | 'TAB_SWITCH'      // from, to, duration — dashboard expects this
+  | 'CHECKOUT_START'  // dashboard expects this (replaces START_ORDER_CLICK)
+  | 'ORDER_COMPLETE'
+  | 'PRODUCT_VIEW'
+  | 'ADD_TO_CART'
+  | 'LOGIN'
+  | 'SIGNUP'
+  | 'PUSH_OPEN'
+  | 'PROMO_VIEW'
+  | 'PROMO_CLICK'
+  // Legacy — still accepted by backend
   | 'VIEW_TAB'
   | 'START_ORDER_CLICK'
   | 'JOIN_CREW_CLICK'
-  | 'PUSH_OPEN'
   | 'REFERRAL_LINK_CLICK';
 
 export interface AnalyticsMetadata {
   tab?: 'Home' | 'Browse' | 'Cart' | 'Orders' | 'Account';
+  from?: string | null;
+  to?: string;
+  duration?: number;
   campaignId?: string;
   title?: string;
   referralCode?: string;
