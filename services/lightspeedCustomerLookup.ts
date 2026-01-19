@@ -39,29 +39,27 @@ export async function lookupCustomerByEmail(email: string): Promise<CustomerSegm
     const customers = await searchCustomers(email, 5);
 
     if (!customers || customers.length === 0) {
-      debugLog('❌ [LightspeedLookup] No customer found for email:', email);
+      debugLog('[LightspeedLookup] No customer found for email:', email);
       return null;
     }
 
-    // Find exact email match (case insensitive) - MUST match, no fallback
+    // Find exact email match (case insensitive)
     const customer = customers.find(
       (c: any) => c.email?.toLowerCase().trim() === email.toLowerCase().trim()
     );
 
     if (!customer) {
-      debugLog('❌ [LightspeedLookup] No matching customer found');
+      debugLog('[LightspeedLookup] No matching customer found for email:', email);
       return null;
     }
 
-    debugLog('✅ [LightspeedLookup] Found customer:', customer.id);
+    debugLog('[LightspeedLookup] Found customer:', customer.id);
 
     // Extract customer segments
     const segments = extractCustomerSegments(customer);
     return segments;
   } catch (error) {
-    console.error('❌ [LightspeedLookup] Error:', error);
-    console.error('❌ [DEBUG] Error message:', (error as Error).message);
-    debugLog('❌ [LightspeedLookup] Error looking up customer:', error);
+    console.error('[LightspeedLookup] Error:', (error as Error).message);
     return null;
   }
 }
@@ -107,9 +105,7 @@ export async function lookupCustomerByPhone(phone: string): Promise<CustomerSegm
     const segments = extractCustomerSegments(customer);
     return segments;
   } catch (error) {
-    console.error('❌ [LightspeedLookup] Error:', error);
-    console.error('❌ [DEBUG] Error message:', (error as Error).message);
-    debugLog('❌ [LightspeedLookup] Error looking up customer:', error);
+    console.error('[LightspeedLookup] Error:', (error as Error).message);
     return null;
   }
 }

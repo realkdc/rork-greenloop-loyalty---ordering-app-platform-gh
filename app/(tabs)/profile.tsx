@@ -48,253 +48,180 @@ const INJECTED_CSS = `
 
 const INJECT_SCRIPT = `
   (function() {
-    const style = document.createElement('style');
-    style.textContent = ${JSON.stringify(INJECTED_CSS)};
-    document.head.appendChild(style);
-
-    // Hide headers, footers, navs, breadcrumbs - same approach as cart/home pages
-    function hideUIElements() {
-      var selectors = [
-        'header', '.ins-header', '.site-header', '.ec-header',
-        'footer', '.site-footer', '.ec-footer',
-        'nav', '.navigation', '.site-nav',
-        '.breadcrumbs', '.ec-breadcrumbs',
-        '[role="banner"]', '[role="navigation"]',
-        '[id*="tile-footer"]', '[id*="tile-header"]'
-      ];
-      
-      for (var s = 0; s < selectors.length; s++) {
-        var els = document.querySelectorAll(selectors[s]);
-        for (var i = 0; i < els.length; i++) {
-          els[i].style.display = 'none';
-        }
-      }
-
-      // Hide menu grid items by finding parent containers with multiple menu items
-      var quickLinkLabels = ['Search Products', 'My Account', 'Track Orders', 'Favorites', 'Shopping Bag', 'Gift Cards'];
-      var sections = document.querySelectorAll('section, div, ul, nav');
-      for (var i = 0; i < sections.length; i++) {
-        var section = sections[i];
-        var text = (section.textContent || '').trim();
-        if (text.length > 50 && text.length < 500) {
-          var matchCount = 0;
-          for (var j = 0; j < quickLinkLabels.length; j++) {
-            if (text.indexOf(quickLinkLabels[j]) !== -1) {
-              matchCount++;
-            }
-          }
-          if (matchCount >= 3) {
-            section.style.display = 'none';
-            if (section.parentElement) {
-              section.parentElement.style.display = 'none';
-            }
-          }
-        }
-      }
-
-      // Hide "Have questions? Contact us" section and footer text
-      var allEls = document.querySelectorAll('*');
-      for (var i = 0; i < allEls.length; i++) {
-        var el = allEls[i];
-        var text = (el.textContent || '').trim();
-        
-        if (text.length > 10 && text.length < 300) {
-          var shouldHide = false;
-          
-          if (text === 'Have questions? Contact us' ||
-              (text.indexOf('LEGAL') !== -1 && text.indexOf('LEGIT') !== -1 && text.indexOf('LONG-LASTING') !== -1) ||
-              text === 'Greenhaus Cannabis Co.' ||
-              text === 'Terms & Conditions' ||
-              text === 'Report abuse') {
-            shouldHide = true;
-          }
-          
-          if (shouldHide) {
-            el.style.display = 'none';
-            var parent = el.parentElement;
-            if (parent) {
-              parent.style.display = 'none';
-              var grandParent = parent.parentElement;
-              if (grandParent && (grandParent.tagName === 'SECTION' || grandParent.tagName === 'FOOTER' || grandParent.tagName === 'DIV')) {
-                grandParent.style.display = 'none';
-              }
-            }
-          }
-        }
-      }
-    }
-
-    // Run immediately
-    hideUIElements();
-
-    // Watch for DOM changes with debouncing
-    var hideTimeout;
-    var observer = new MutationObserver(function() {
-      if (hideTimeout) clearTimeout(hideTimeout);
-      hideTimeout = setTimeout(hideUIElements, 100);
-    });
-    
-    if (document.body) {
-      observer.observe(document.body, { childList: true, subtree: true });
-    }
-
-    // Magic link detection
-    if (typeof window.__ghMagicLinkCooldown === 'undefined') {
-      window.__ghMagicLinkCooldown = 0;
-    }
-
-    function triggerMagicLinkBanner(source) {
-      const now = Date.now();
-      if (now - window.__ghMagicLinkCooldown < 3000) {
-        console.log('[Auth] Magic link detection suppressed - skipping (' + source + ')');
-        return;
-      }
-      window.__ghMagicLinkCooldown = now;
-      console.log('[Auth] Magic link request detected (' + source + ')');
-
+    // Immediately post that script is running
+    function postMsg(type, data) {
       try {
-        window.ReactNativeWebView?.postMessage(JSON.stringify({type:'MAGIC_LINK_REQUESTED', source: source, timestamp: now}));
-      } catch(err) {
-        console.log('[Auth] Error posting MAGIC_LINK_REQUESTED', err);
+        window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type: type}, data || {})));
+      } catch(e) {
+        console.log('[GH-INJECT] postMessage error:', e);
       }
     }
 
-    // Watch for button clicks
+    // Send immediate debug that script is running
+    postMsg('DEBUG', {msg: 'INJECT_SCRIPT running at ' + window.location.href});
+
+    // Track the current URL to detect navigation
+    var currentUrl = window.location.href;
+
+    window.__ghMagicLinkCooldown = window.__ghMagicLinkCooldown || 0;
+    window.__ghMagicLinkBannerShown = false;
+
+    // Click detection for "Get Sign-In Link" button
     document.addEventListener('click', function(e) {
-      const target = e.target;
-      if (!target) return;
-
-      const text = (target.textContent || '').toLowerCase();
-      const href = (target.getAttribute('href') || '').toLowerCase();
-      const onclick = (target.getAttribute('onclick') || '').toLowerCase();
-
-      // Check if it's a sign-in link button
-      if (
-        /get.*sign.*in.*link|send.*sign.*in.*link|magic.*link/i.test(text) ||
-        /sign-?in-?link|magic-?link/i.test(href) ||
-        /sign-?in|magic-?link/i.test(onclick)
-      ) {
-        console.log('[Auth] Sign-in link button clicked');
-        setTimeout(() => triggerMagicLinkBanner('button-click'), 500);
+      var t = e.target;
+      // Traverse up to 10 levels to find button text
+      for (var i = 0; i < 10 && t; i++) {
+        var txt = (t.textContent || '').toLowerCase();
+        // Only match the exact button text, not partial matches
+        if (txt.indexOf('get sign-in link') !== -1 && t.tagName === 'BUTTON') {
+          var now = Date.now();
+          if (now - window.__ghMagicLinkCooldown > 3000) {
+            window.__ghMagicLinkCooldown = now;
+            setTimeout(function() { postMsg('MAGIC_LINK_REQUESTED'); }, 500);
+          }
+          return;
+        }
+        t = t.parentElement;
       }
     }, true);
 
-    // Intercept fetch requests
-    const originalFetch = window.fetch;
-    window.fetch = function(...args) {
-      const promise = originalFetch.apply(this, args);
-      const url = args[0]?.toString() || '';
+    // Also detect when success banner appears (only if email is filled)
+    function checkForBanner() {
+      if (window.__ghMagicLinkBannerShown) return;
 
-      if (/sign.*in.*link|magic.*link|auth.*email/i.test(url)) {
-        promise.then(response => {
-          if (response.ok) {
-            setTimeout(() => triggerMagicLinkBanner('fetch'), 500);
-          }
-          return response;
-        }).catch(() => {});
+      var bodyText = document.body.innerText || '';
+
+      // Only trigger if we see the exact success message AND an email with @ symbol
+      if (bodyText.indexOf('The link has been sent to') !== -1 && bodyText.indexOf('@') !== -1) {
+        window.__ghMagicLinkBannerShown = true;
+        postMsg('MAGIC_LINK_REQUESTED');
       }
-
-      return promise;
-    };
-
-    // Send a test message to confirm WebView communication works
-    try {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'WEBVIEW_LOADED',
-        url: window.location.href,
-        timestamp: Date.now()
-      }));
-    } catch(e) {}
-
-    // Track successful logins (detect auth cookies or logged-in state)
-    let hasTrackedLogin = false;
-    let lastSentEmail = null;
-
-    function extractCustomerEmail() {
-      const bodyText = document.body.innerText || '';
-
-      // Method 1: Look for "Email" heading followed by email address (but not "Edit")
-      // Match pattern: "Email\n[email]\nEdit" and extract just the email
-      const emailSectionMatch = bodyText.match(/Email[\\s\\n]+([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})[\\s\\n]*(?:Edit)?/i);
-      if (emailSectionMatch) {
-        const cleanEmail = emailSectionMatch[1].replace(/Edit$/i, '').trim();
-        console.log('[Auth] Found email via Email section:', cleanEmail);
-        return cleanEmail;
-      }
-
-      // Method 2: Look for "Welcome, email@example.com!" pattern (exact Lightspeed format)
-      const welcomeMatch = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})!/i);
-      if (welcomeMatch) return welcomeMatch[1];
-
-      // Method 3: Look for "Welcome, email@example.com" without exclamation
-      const welcomeMatch2 = bodyText.match(/Welcome,\\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
-      if (welcomeMatch2) return welcomeMatch2[1];
-
-      // Method 4: Look for "Email\\nuser@example.com" pattern (Lightspeed account page)
-      const emailLabelMatch = bodyText.match(/Email\\n([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,})/i);
-      if (emailLabelMatch) return emailLabelMatch[1];
-
-      // Method 5: Just find any email in the page
-      const anyEmail = bodyText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/);
-      if (anyEmail) {
-        console.log('[Auth] Found email via generic search:', anyEmail[0]);
-        return anyEmail[0];
-      }
-
-      return null;
     }
 
-    function checkLoginStatus() {
-      // Skip if already tracked this session
-      if (hasTrackedLogin) return;
+    // Check for banner periodically
+    setInterval(checkForBanner, 1000);
 
-      const bodyText = document.body.innerText || '';
+    // Login detection - look for email + Sign Out which indicates logged in state
+    // Only reset if not already tracked on THIS page load
+    if (typeof window.__ghLoginTracked === 'undefined') {
+      window.__ghLoginTracked = false;
+    }
+    if (typeof window.__ghLogoutTracked === 'undefined') {
+      window.__ghLogoutTracked = false;
+    }
 
-      // Check if on account page
-      const isOnAccountPage = window.location.href.includes('/account');
-      if (!isOnAccountPage) return;
+    function check() {
+      // Reset tracking if URL changed (navigation happened)
+      if (window.location.href !== currentUrl) {
+        postMsg('DEBUG', {msg: 'URL changed from ' + currentUrl + ' to ' + window.location.href});
+        currentUrl = window.location.href;
+        window.__ghLoginTracked = false;
+        window.__ghLogoutTracked = false;
+      }
 
-      // Extract email first
-      const customerEmail = extractCustomerEmail();
+      if (window.__ghLoginTracked) {
+        return;
+      }
 
-      // If we found an email on the account page, assume logged in
-      if (customerEmail && customerEmail !== lastSentEmail) {
-        console.log('[Auth] Login detected! Email:', customerEmail);
-        hasTrackedLogin = true;
-        lastSentEmail = customerEmail;
+      var txt = document.body.innerText || '';
+      var txtLen = txt.length;
 
-        // Send message to React Native
-        try {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'USER_LOGGED_IN',
-            email: customerEmail,
-            timestamp: Date.now()
-          }));
-          console.log('[Auth] Posted USER_LOGGED_IN message to React Native');
-        } catch(err) {
-          console.error('[Auth] Error posting message:', err);
+      // Debug: Log what we're checking - include text length and snippet
+      var hasSignOut = txt.indexOf('Sign Out') !== -1;
+      var hasAt = txt.indexOf('@') !== -1;
+      var hasWelcome = txt.indexOf('Welcome') !== -1;
+      var snippet = txt.substring(0, 200).replace(/\\n/g, ' ');
+
+      // Only log every few seconds to reduce spam
+      if (!window.__ghLastLogTime || Date.now() - window.__ghLastLogTime > 5000) {
+        window.__ghLastLogTime = Date.now();
+        postMsg('DEBUG', {msg: 'check(): len=' + txtLen + ', hasSignOut=' + hasSignOut + ', hasAt=' + hasAt + ', hasWelcome=' + hasWelcome});
+        if (txtLen < 500) {
+          postMsg('DEBUG', {msg: 'Body snippet: ' + snippet});
         }
-      } else {
-        console.log('[Auth] No email found yet, will retry...');
+      }
+
+      // Must have "Sign Out" to confirm logged in state
+      if (!hasSignOut) {
+        return;
+      }
+
+      // Find email using regex pattern - more reliable than character-by-character
+      var emailRegex = /[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+      var matches = txt.match(emailRegex);
+
+      if (!matches || matches.length === 0) {
+        return;
+      }
+
+      // Use the first valid email found
+      var email = matches[0];
+
+      // Clean up - remove trailing punctuation or "Edit" suffix
+      while (email.length > 0) {
+        var lastChar = email.charAt(email.length - 1);
+        if (lastChar === '!' || lastChar === ',' || lastChar === ';' || lastChar === ':' || lastChar === '.') {
+          email = email.substring(0, email.length - 1);
+        } else {
+          break;
+        }
+      }
+      // Handle "emailEdit" case
+      if (email.length > 4 && email.substring(email.length - 4) === 'Edit') {
+        email = email.substring(0, email.length - 4);
+      }
+
+      if (email && email.indexOf('@') !== -1 && email.indexOf('.') !== -1 && email.length > 5) {
+        window.__ghLoginTracked = true;
+        window.__ghWasLoggedIn = true; // Mark that user was logged in this session
+        postMsg('DEBUG', {msg: 'SENDING USER_LOGGED_IN for: ' + email});
+        postMsg('USER_LOGGED_IN', {email: email});
       }
     }
 
-    // Check immediately and every 2 seconds
-    setTimeout(checkLoginStatus, 500);
-    setTimeout(checkLoginStatus, 1500);
-    setTimeout(checkLoginStatus, 3000);
-    setInterval(checkLoginStatus, 2000);
+    // Run check with increasing delays to catch page after it fully loads
+    check();
+    setTimeout(check, 500);
+    setTimeout(check, 1000);
+    setTimeout(check, 1500);
+    setTimeout(check, 2000);
+    setTimeout(check, 2500);
+    setTimeout(check, 3000);
+    setTimeout(check, 4000);
+    setTimeout(check, 5000);
+    setTimeout(check, 6000);
+    setTimeout(check, 8000);
+    setTimeout(check, 10000);
+    setInterval(check, 3000);
 
-    // Reset on URL change
-    let lastUrl = window.location.href;
-    setInterval(() => {
-      if (window.location.href !== lastUrl) {
-        lastUrl = window.location.href;
-        hasTrackedLogin = false;
-        setTimeout(checkLoginStatus, 500);
-        setTimeout(checkLoginStatus, 1500);
+    // Logout detection - look for "Guest account" or "Join us or sign in" patterns
+    // IMPORTANT: Only detect logout AFTER user has been detected as logged in during this session
+    // This prevents false logout detection on initial page load
+    window.__ghWasLoggedIn = window.__ghWasLoggedIn || false; // Preserve if already set
+
+    function checkLogout() {
+      if (window.__ghLogoutTracked) return;
+      // Only check for logout if user was logged in during this webview session
+      if (!window.__ghWasLoggedIn && !window.__ghLoginTracked) return;
+
+      var txt = document.body.innerText || '';
+
+      // If we see "Guest account" or "Join us or sign in" without "Sign Out", user is logged out
+      var hasGuestAccount = txt.indexOf('Guest account') !== -1;
+      var hasJoinUs = txt.indexOf('Join us or sign in') !== -1;
+      var hasSignOut = txt.indexOf('Sign Out') !== -1;
+
+      if ((hasGuestAccount || hasJoinUs) && !hasSignOut) {
+        window.__ghLogoutTracked = true;
+        postMsg('DEBUG', {msg: 'User logged out detected'});
+        postMsg('USER_LOGGED_OUT', {});
       }
-    }, 500);
+    }
+
+    // Delay logout detection to let page fully load - start checking after 5 seconds
+    setTimeout(checkLogout, 5000);
+    setTimeout(checkLogout, 7000);
+    setInterval(checkLogout, 3000);
   })();
   true;
 `;
@@ -303,7 +230,7 @@ export default function ProfileTab() {
   const ref = useRef<WebView>(null);
   webviewRefs.profile = ref;
   const insets = useSafeAreaInsets();
-  const { user, signIn, updateUser } = useAuth();
+  const { user, signIn, signOut, updateUser } = useAuth();
   const router = useRouter();
 
   const [isLoading, setIsLoading] = useState(true);
@@ -321,6 +248,9 @@ export default function ProfileTab() {
   const [showRewards, setShowRewards] = useState(false);
   const [isLoadingCustomer, setIsLoadingCustomer] = useState(false);
   const rewardsSlideAnim = useRef(new Animated.Value(1000)).current;
+
+  // Track whether webview has confirmed login state
+  const [webviewConfirmedLogin, setWebviewConfirmedLogin] = useState(false);
 
   // Determine if we're on the main account page (not a sub-page like /account/edit)
   // Main page: /account or /account/ (with optional query params or hash)
@@ -384,44 +314,37 @@ export default function ProfileTab() {
     }
   }, [rewardsSlideAnim]);
 
-  // Auto-fetch customer data if user is already logged in
+  // Auto-fetch customer data ONLY after webview confirms login state
+  // This prevents showing rewards before webview confirms the user is actually logged in
+  const hasFetchedRef = useRef(false);
   useEffect(() => {
-    // Get email from user object - try email field first, then uid
-    const userEmail = user?.email || user?.uid;
+    // Must wait for webview to confirm login before fetching
+    if (!webviewConfirmedLogin) return;
 
-    console.log('🔄 [Profile] Auto-fetch check:', {
-      userEmail,
-      hasCustomerData: !!customerData,
-      isLoadingCustomer,
-      showRewards,
-    });
+    let userEmail = user?.email || user?.uid;
+    if (!userEmail || !userEmail.includes('@')) return;
+    if (customerData || isLoadingCustomer || hasFetchedRef.current) return;
 
-    // Check if user has email and we haven't loaded customer data yet
-    if (userEmail && userEmail.includes('@') && !customerData && !isLoadingCustomer && !showRewards) {
-      console.log('🔄 [Profile] User already logged in, auto-fetching customer data for:', userEmail);
-      fetchCustomerData(userEmail);
+    // Clean email - remove "Edit" suffix if present
+    if (userEmail.endsWith('Edit')) {
+      userEmail = userEmail.slice(0, -4);
     }
-  }, [user?.email, user?.uid, customerData, isLoadingCustomer, showRewards, fetchCustomerData]);
+
+    hasFetchedRef.current = true;
+    fetchCustomerData(userEmail);
+  }, [webviewConfirmedLogin, user?.email, user?.uid, customerData, isLoadingCustomer, fetchCustomerData]);
 
   const handleManualPaste = useCallback(async () => {
     try {
-      console.log('[Paste] Starting manual paste...');
       const clipboardContent = await Clipboard.getStringAsync();
-      console.log('[Paste] Clipboard content length:', clipboardContent?.length || 0);
 
       if (!clipboardContent) {
-        console.log('[Paste] Clipboard is empty');
         Alert.alert('No Link Found', 'Your clipboard is empty. Please copy the sign-in link from your email first.');
         return;
       }
 
       // Check if it looks like a magic link
-      console.log('[Paste] Checking if link is valid...');
-      console.log('[Paste] Contains greenhauscc.com:', clipboardContent.includes('greenhauscc.com'));
-      console.log('[Paste] Contains key=:', clipboardContent.includes('key='));
-
       if (!clipboardContent.includes('greenhauscc.com') || !clipboardContent.includes('key=')) {
-        console.log('[Paste] Invalid magic link format');
         Alert.alert(
           'Invalid Link',
           'The clipboard does not contain a valid GreenHaus sign-in link. Please copy the link from your email and try again.'
@@ -429,19 +352,14 @@ export default function ProfileTab() {
         return;
       }
 
-      console.log('✅ [Paste] Valid magic link detected');
-      console.log('[Paste] Link URL:', clipboardContent.substring(0, 50) + '...');
       hasAppliedLinkRef.current = true;
       setShowPasteButton(false);
 
       const applyScript = `
         (function(){
           try {
-            console.log('[Auth] Starting navigation to magic link');
             const url = '${clipboardContent.replace(/'/g, "\\'")}';
-            console.log('[Auth] Target URL:', url.substring(0, 50) + '...');
             window.location.href = url;
-            console.log('[Auth] Navigation command executed');
           } catch(e){
             console.error('[Auth] Navigation error:', e);
           }
@@ -449,9 +367,7 @@ export default function ProfileTab() {
         true;
       `;
 
-      console.log('[Paste] Injecting navigation script...');
       ref.current?.injectJavaScript(applyScript);
-      console.log('[Paste] Script injected successfully');
 
       setTimeout(() => {
         hasAppliedLinkRef.current = false;
@@ -481,13 +397,14 @@ export default function ProfileTab() {
   const handleMessage = useCallback(async (event: any) => {
     try {
       const rawData = event.nativeEvent.data || '{}';
-      console.log('📨📨📨 [Profile] RAW WebView message:', rawData.substring(0, 200));
-
       const msg = JSON.parse(rawData);
-      console.log('📨 [Profile] Parsed message type:', msg.type);
 
       if (msg.type === 'WEBVIEW_LOADED') {
-        // WebView communication confirmed working
+        return;
+      }
+
+      if (msg.type === 'DEBUG') {
+        // Silently ignore debug messages
         return;
       }
 
@@ -496,18 +413,44 @@ export default function ProfileTab() {
         setTimeout(() => {
           setShowPasteButton(true);
         }, 1000);
+      } else if (msg.type === 'USER_LOGGED_OUT') {
+        // Only process logout if we actually have a user stored or webview confirmed login
+        if (!user && !customerData && !webviewConfirmedLogin) {
+          return;
+        }
+
+        // Clear rewards UI
+        setShowRewards(false);
+        setCustomerData(null);
+        setWebviewConfirmedLogin(false);
+        // Reset fetch flag so we can fetch again when user logs back in
+        hasFetchedRef.current = false;
+        // Sign out from AuthContext to clear stored user data
+        try {
+          await signOut();
+        } catch (error) {
+          console.error('[Profile] signOut error:', error);
+        }
       } else if (msg.type === 'USER_LOGGED_IN') {
-        const customerEmail = msg.email;
+        let customerEmail = msg.email;
+
+        // Mark webview as confirmed login
+        setWebviewConfirmedLogin(true);
 
         if (!customerEmail) {
           return;
+        }
+
+        // Clean email - remove "Edit" suffix if present
+        if (customerEmail.endsWith('Edit')) {
+          customerEmail = customerEmail.slice(0, -4);
         }
 
         // Sign in with email
         try {
           await signIn(customerEmail);
         } catch (error) {
-          // Silently fail
+          console.error('[Profile] signIn error:', error);
         }
 
         // Fetch customer data from Lightspeed
@@ -518,7 +461,7 @@ export default function ProfileTab() {
           const event = {
             id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             type: 'signup',
-            userId: customerEmail, // Use email as userId for analytics tracking
+            userId: customerEmail,
             metadata: {
               method: 'magic_link',
               source: 'webview',
@@ -527,28 +470,23 @@ export default function ProfileTab() {
             timestamp: new Date().toISOString(),
           };
 
-          console.log('📊 Sending signup event with email as userId:', event);
-
-          // Send to /api/events endpoint
           const response = await fetch('https://greenhaus-admin.vercel.app/api/events', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(event),
           });
 
-          if (response.ok) {
-            console.log('✅ Signup event sent successfully');
-          } else {
-            console.warn('⚠️ Signup event failed:', response.status);
+          if (!response.ok) {
+            console.error('[Profile] Signup event failed:', response.status);
           }
         } catch (error) {
-          console.error('❌ Error sending signup event:', error);
+          console.error('[Profile] Error sending signup event:', error);
         }
       }
     } catch (error) {
-      console.error('Profile message error:', error);
+      console.error('[Profile] Message error:', error);
     }
-  }, [user, signIn, fetchCustomerData]);
+  }, [user, signIn, signOut, fetchCustomerData, customerData, webviewConfirmedLogin]);
 
   const handleDeleteAccount = useCallback(() => {
     setShowDeleteModal(true);
@@ -602,7 +540,7 @@ export default function ProfileTab() {
         </View>
       )}
       {/* Native header cover - hides the webview header (only on main account page, not sub-pages) */}
-      {!showRewards && isMainAccountPage && (
+      {!showRewards && isMainAccountPage && false && (
         <View style={styles.headerCover} pointerEvents="none" />
       )}
 
@@ -639,7 +577,9 @@ export default function ProfileTab() {
           true;
         `}
         injectedJavaScript={INJECT_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          setIsLoading(true);
+        }}
         onLoadEnd={() => {
           setIsLoading(false);
           setRefreshing(false);
@@ -648,17 +588,28 @@ export default function ProfileTab() {
             loadingTimeoutRef.current = null;
           }
           ref.current?.injectJavaScript(INJECT_SCRIPT);
+          // If user is already logged in from AuthContext, mark it in webview
+          // so logout detection knows to watch for logout
+          if (user?.email || user?.uid) {
+            ref.current?.injectJavaScript('window.__ghWasLoggedIn = true; true;');
+          }
         }}
-        onError={() => {
+        onError={(e) => {
+          console.error('[Profile] WebView error:', e.nativeEvent);
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={() => {
+        onHttpError={(e) => {
+          console.error('[Profile] WebView HTTP error:', e.nativeEvent);
           setIsLoading(false);
           setRefreshing(false);
         }}
         onNavigationStateChange={(navState) => {
           setCurrentUrl(navState.url);
+          // Re-inject script on navigation to catch login state after magic link redirect
+          setTimeout(() => {
+            ref.current?.injectJavaScript(INJECT_SCRIPT);
+          }, 500);
         }}
         onMessage={handleMessage}
         userAgent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
