@@ -269,6 +269,16 @@ export default function CartTab() {
     };
   }, [isLoading]);
 
+  // Reload cart when tab is focused to ensure fresh content
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[Cart] Tab focused - reloading');
+      if (ref.current) {
+        ref.current.reload();
+      }
+    }, [])
+  );
+
   return (
     <View style={styles.container}>
       {isLoading && (
@@ -294,8 +304,12 @@ export default function CartTab() {
         incognito={false}
         pullToRefreshEnabled={true}
         injectedJavaScript={CART_LISTENER_SCRIPT}
-        onLoadStart={() => setIsLoading(true)}
+        onLoadStart={() => {
+          console.log('[Cart] Load started');
+          setIsLoading(true);
+        }}
         onLoadEnd={() => {
+          console.log('[Cart] Load ended');
           setIsLoading(false);
           setRefreshing(false);
           if (loadingTimeoutRef.current) {
@@ -304,11 +318,13 @@ export default function CartTab() {
           }
           ref.current?.injectJavaScript(CART_LISTENER_SCRIPT);
         }}
-        onError={() => {
+        onError={(e) => {
+          console.error('[Cart] WebView error:', e.nativeEvent);
           setIsLoading(false);
           setRefreshing(false);
         }}
-        onHttpError={() => {
+        onHttpError={(e) => {
+          console.error('[Cart] HTTP error:', e.nativeEvent);
           setIsLoading(false);
           setRefreshing(false);
         }}
