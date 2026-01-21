@@ -54,6 +54,11 @@ Simulator Screenshot -*
 .env
 .env*.local
 
+# Service account keys — NEVER commit. Use GOOGLE_APPLICATION_CREDENTIALS for local dev.
+fcm-service-account.json
+*-service-account*.json
+**/service-account*.json
+
 # typescript
 *.tsbuildinfo
 .vercel
